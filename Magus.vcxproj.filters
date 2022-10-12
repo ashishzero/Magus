@@ -89,9 +89,6 @@
     <ClInclude Include="Magus\RobotoMedium.h">
       <Filter>Header Files</Filter>
     </ClInclude>
-    <ClInclude Include="Magus\stb_write_image.h">
-      <Filter>Header Files</Filter>
-    </ClInclude>
   </ItemGroup>
   <ItemGroup>
     <Natvis Include="Magus\Kr\KrVisualizer.natvis" />

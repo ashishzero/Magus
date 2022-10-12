@@ -110,7 +110,6 @@
     <ClInclude Include="Magus\RobotoMedium.h" />
     <ClInclude Include="Magus\stb_rect_pack.h" />
     <ClInclude Include="Magus\stb_truetype.h" />
-    <ClInclude Include="Magus\stb_write_image.h" />
   </ItemGroup>
   <ItemGroup>
     <Natvis Include="Magus\Kr\KrVisualizer.natvis" />
