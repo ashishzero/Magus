@@ -1,0 +1,3 @@
+[submodule "Magus/Kr"]
+	path = Magus/Kr
+	url = git@github.com:Zero5620/Kr.git
