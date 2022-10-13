@@ -36,6 +36,9 @@
     <ClCompile Include="Magus\Render2d.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="Magus\RenderBackend_Direct3D11.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="Magus\Kr\KrHashTable.h">
@@ -87,6 +90,9 @@
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="Magus\RobotoMedium.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="Magus\RenderBackend.h">
       <Filter>Header Files</Filter>
     </ClInclude>
   </ItemGroup>

@@ -84,6 +84,7 @@
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>
+    <ClCompile Include="Magus\RenderBackend_Direct3D11.cpp" />
     <ClCompile Include="Magus\Kr\KrMedia.cpp" />
     <ClCompile Include="Magus\Kr\KrMemory.cpp" />
     <ClCompile Include="Magus\Kr\KrMath.cpp" />
@@ -93,6 +94,7 @@
     <ClCompile Include="Magus\Render2d.cpp" />
   </ItemGroup>
   <ItemGroup>
+    <ClInclude Include="Magus\RenderBackend.h" />
     <ClInclude Include="Magus\Kr\KrArray.h" />
     <ClInclude Include="Magus\Kr\KrHashTable.h" />
     <ClInclude Include="Magus\Kr\KrCommon.h" />
