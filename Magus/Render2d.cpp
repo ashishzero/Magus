@@ -11,8 +11,8 @@
 #define STB_RECT_PACK_IMPLEMENTATION
 #include "stb_rect_pack.h"
 
-#define STBTT_malloc(x,u)  ((void)(u),Alloc(x))
-#define STBTT_free(x,u)    ((void)(u),Free(x, 0))
+#define STBTT_malloc(x,u)  ((void)(u),MemAlloc(x))
+#define STBTT_free(x,u)    ((void)(u),MemFree(x, 0))
 #define STBTT_assert(x)    Assert(x)
 #define STBTT_STATIC
 
@@ -345,7 +345,7 @@ R_Font *R_CreateFont2d(R_Renderer2d *r2, Array_View<R_Font_Config> configs, floa
 	allocation_size += sizeof(uint16_t) * max_codepoint;
 	allocation_size += sizeof(R_Font_Glyph) * glyph_count;
 
-	uint8_t *mem = (uint8_t *)Alloc(allocation_size);
+	uint8_t *mem = (uint8_t *)MemAlloc(allocation_size);
 	if (!mem) return nullptr;
 
 	R_Font *font = (R_Font *)mem;
@@ -448,7 +448,7 @@ R_Font *R_CreateFont2d(R_Renderer2d *r2, String font_data, float height, Array_V
 void R_DestroyFont2d(R_Renderer2d *r2, R_Font *font) {
 	if (font->texture)
 		R_DestroyTexture2d(r2, font->texture);
-	Free(font, sizeof(R_Font) + ArrSizeInBytes(font->index) + ArrSizeInBytes(font->glyphs));
+	MemFree(font, sizeof(R_Font) + ArrSizeInBytes(font->index) + ArrSizeInBytes(font->glyphs));
 }
 
 R_Texture *R_DefaultTexture(R_Renderer2d *r2) {

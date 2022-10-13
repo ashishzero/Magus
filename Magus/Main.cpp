@@ -1,17 +1,20 @@
 #include "Kr/KrPrelude.h"
 #include "Kr/KrMedia.h"
 
-#include "Render2d.h"
-#include "Render2dImpl.h"
+#include "RenderBackend.h"
 
 int Main(int argc, char **argv) {
 	PL_Init();
+
+	PL_ThreadCharacteristics(PL_THREAD_GAMES);
 	
 	PL_Window *window = PL_CreateWindow("Magus", 0, 0, false);
 	if (!window)
 		FatalError("Failed to create windows");
 
-	R_Renderer2d *renderer = R_CreateRenderer2d(new R_Backend2d);
+	R_Device *device = R_CreateDevice(R_DEVICE_DEBUG_ENABLE);
+
+	R_Swap_Chain *swap_chain = R_CreateSwapChain(device, window);
 
 	bool running = true;
 
@@ -24,14 +27,15 @@ int Main(int argc, char **argv) {
 				running = false;
 				break;
 			}
-
-			if (e.kind == PL_EVENT_KEY_PRESSED && e.key.id == PL_KEY_ESCAPE) {
-				PL_PostQuitMessage();
-			}
 		}
+
+		R_Present(swap_chain);
 
 		ThreadResetScratchpad();
 	}
+
+	R_DestroySwapChain(device, swap_chain);
+	R_DestroyDevice(device);
 
 	return 0;
 }
