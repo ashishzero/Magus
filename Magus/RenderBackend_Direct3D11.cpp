@@ -198,6 +198,45 @@ R_RENDER_API void R_DestroyDevice(R_Device *device) {
 	device1->Release();
 }
 
+R_RENDER_API R_Command_Queue *R_CreateCommandQueue(R_Device *device) {
+	ID3D11Device1 *device1 = (ID3D11Device1 *)device;
+
+	ID3D11DeviceContext1 *imm;
+	device1->GetImmediateContext1(&imm);
+
+	return (R_Command_Queue *)imm;
+}
+
+R_RENDER_API void R_DestroyCommandQueue(R_Command_Queue *queue) {
+	ID3D11DeviceContext1 *imm = (ID3D11DeviceContext1 *)queue;
+	imm->Release();
+}
+
+R_RENDER_API void R_Submit(R_Command_Queue *queue, R_Command_Buffer *buffer) {
+	ID3D11DeviceContext1 *immediate_context = (ID3D11DeviceContext1 *)queue;
+	ID3D11DeviceContext1 *deferred_context  = (ID3D11DeviceContext1 *)buffer;
+
+	ID3D11CommandList *command_list = nullptr;
+	deferred_context->FinishCommandList(false, &command_list);
+	if (command_list) {
+		immediate_context->ExecuteCommandList(command_list, false);
+		command_list->Release();
+	}
+}
+
+R_RENDER_API R_Command_Buffer *R_CreateCommandBuffer(R_Device *device) {
+	ID3D11Device1 *device1 = (ID3D11Device1 *)device;
+
+	ID3D11DeviceContext1 *deferred_context;
+	device1->CreateDeferredContext1(0, &deferred_context);
+
+	return (R_Command_Buffer *)deferred_context;
+}
+
+R_RENDER_API void R_DestroyCommandBuffer(R_Command_Buffer *buffer) {
+	ID3D11DeviceContext1 *deferred_context = (ID3D11DeviceContext1 *)buffer;
+}
+
 struct R_Swap_Chain {
 	IDXGISwapChain1 *       native;
 	ID3D11RenderTargetView *render_target;
@@ -225,7 +264,7 @@ R_RENDER_API R_Swap_Chain *R_CreateSwapChain(R_Device *device, PL_Window *window
 	DXGI_SWAP_CHAIN_DESC1 swap_chain_desc = {};
 	swap_chain_desc.Width              = 0;
 	swap_chain_desc.Height             = 0;
-	swap_chain_desc.Format             = DXGI_FORMAT_R16G16B16A16_FLOAT;
+	swap_chain_desc.Format             = DXGI_FORMAT_R8G8B8A8_UNORM;
 	swap_chain_desc.SampleDesc.Count   = 1;
 	swap_chain_desc.SampleDesc.Quality = 0;
 	swap_chain_desc.BufferUsage        = DXGI_USAGE_RENDER_TARGET_OUTPUT;
@@ -314,4 +353,10 @@ void R_GetRenderTargetSize(R_Render_Target *render_target, uint32_t *w, uint32_t
 	texture->GetDesc(&render_target_desc);
 	*w = render_target_desc.Width;
 	*h = render_target_desc.Height;
+}
+
+void R_ClearRenderTarget(R_Command_Buffer *buffer, R_Render_Target *render_target, const float color[4]) {
+	ID3D11DeviceContext1 *deferred_context     = (ID3D11DeviceContext1 *)buffer;
+	ID3D11RenderTargetView *render_target_view = (ID3D11RenderTargetView *)render_target;
+	deferred_context->ClearRenderTargetView(render_target_view, color);
 }
