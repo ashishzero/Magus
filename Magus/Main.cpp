@@ -1,6 +1,7 @@
 #include "Kr/KrPrelude.h"
 #include "Kr/KrMedia.h"
 #include "Kr/KrMath.h"
+#include "Kr/KrArray.h"
 
 #include "RenderBackend.h"
 

@@ -61,6 +61,7 @@ struct R_Rect {
 };
 
 struct R_Texture;
+struct R_Command_Buffer;
 
 struct R_Font_Glyph {
 	uint32_t codepoint;
@@ -116,7 +117,7 @@ R_Memory2d    R_GetMemoryInformation(R_Renderer2d *r2);
 //
 
 void R_NextFrame(R_Renderer2d *r2, R_Rect region = R_Rect(0.0f, 0.0f, 1.0f, 1.0f));
-void R_FinishFrame(R_Renderer2d *r2, void *rendering_context);
+void R_FinishFrame(R_Renderer2d *r2, R_Command_Buffer *command_buffer);
 void R_NextDrawCommand(R_Renderer2d *r2);
 
 void R_CameraView(R_Renderer2d *r2, float left, float right, float bottom, float top, float _near, float _far);

@@ -38,8 +38,10 @@ struct R_Description2d {
 	Array_View<R_Index2d>    indices;
 };
 
+struct R_Command_Buffer;
+
 struct R_Backend2d {
 	virtual R_Texture *CreateTextureRGBA(uint32_t w, uint32_t h, const uint8_t *pixels) { return nullptr; }
-	virtual void       DestroyTexture2d(R_Texture *) {}
-	virtual void       DrawFrame(void *, const R_Description2d &) {}
+	virtual void       DestroyTexture(R_Texture *) {}
+	virtual void       DrawFrame(R_Command_Buffer *, const R_Description2d &) {}
 };

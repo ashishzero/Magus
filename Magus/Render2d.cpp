@@ -205,7 +205,7 @@ R_Texture *R_CreateTexture2d(R_Renderer2d *r2, uint32_t w, uint32_t h, const uin
 }
 
 void R_DestroyTexture2d(R_Renderer2d *r2, R_Texture *texture) {
-	r2->backend->DestroyTexture2d(texture);
+	r2->backend->DestroyTexture(texture);
 }
 
 R_Font_Glyph *R_FontFindGlyph(R_Font *font, uint32_t codepoint) {
@@ -518,7 +518,7 @@ void R_NextFrame(R_Renderer2d *r2, R_Rect region) {
 	R_PushDrawCommand(r2);
 }
 
-void R_FinishFrame(R_Renderer2d *r2, void *rendering_context) {
+void R_FinishFrame(R_Renderer2d *r2, R_Command_Buffer *command_buffer) {
 	if (r2->command.count) {
 		if (r2->command.Last().index_count == 0)
 			r2->command.count -= 1;
@@ -531,7 +531,7 @@ void R_FinishFrame(R_Renderer2d *r2, void *rendering_context) {
 		description.vertices   = r2->vertex;
 		description.indices    = r2->index;
 
-		r2->backend->DrawFrame(rendering_context, description);
+		r2->backend->DrawFrame(command_buffer, description);
 	}
 }
 
