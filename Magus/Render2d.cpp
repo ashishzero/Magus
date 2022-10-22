@@ -1,8 +1,5 @@
 #include "Render2d.h"
-#include "Render2dImpl.h"
-
 #include "Kr/KrPrelude.h"
-
 #include "RobotoMedium.h"
 
 #define STBRP_ASSERT Assert
@@ -30,34 +27,47 @@ struct R_Memory_Mark {
 };
 #endif
 
+struct R_Command2d {
+	R_Pipeline *pipeline;
+	R_Camera2d  camera;
+	Mat4        transform;
+	R_Rect      rect;
+	R_Texture * texture;
+	uint32_t    vertex_offset;
+	uint32_t    index_offset;
+	uint32_t    index_count;
+};
+
 struct R_Renderer2d {
-	Array<R_Command2d> command;
-	Array<R_Vertex2d>  vertex;
-	Array<R_Index2d>   index;
-	Array<Mat4>        transform;
+	Array<R_Command2d>  command;
+	Array<R_Vertex2d>   vertex;
+	Array<R_Index2d>    index;
+	Array<Mat4>         transform;
 
-	R_Command2d *      write_command  = nullptr;
-	R_Vertex2d *       write_vertex   = nullptr;
-	R_Index2d *        write_index    = nullptr;
+	R_Command2d *       write_command        = nullptr;
+	R_Vertex2d *        write_vertex         = nullptr;
+	R_Index2d *         write_index          = nullptr;
 
-	R_Index2d          next_index     = 0;
+	R_Index2d           next_index           = 0;
 
-	Array<R_Texture *> texture;
-	Array<R_Rect>      rect;
-	Array<Vec2>        path;
+	Array<R_Pipeline *> pipeline;
+	Array<R_Texture *>  texture;
+	Array<R_Rect>       rect;
+	Array<Vec2>         path;
 
-	float              thickness     = 1.0f;
+	R_Camera2d          camera;
+	float               thickness            = 1.0f;
 
-	R_Backend2d *      backend       = nullptr;
+	R_Backend2d *       backend              = nullptr;
 
-	R_Texture *        white_texture = nullptr;
-	R_Font *           default_font  = nullptr;
+	R_Texture *         white_texture        = nullptr;
+	R_Font *            default_font         = nullptr;
 
 #if defined(RENDER_GROUP2D_ENABLE_DEBUG_INFO)
-	R_Memory_Mark      mark          = {};
+	R_Memory_Mark       mark                 = {};
 #endif
 
-	M_Allocator        allocator     = ThreadContext.allocator;
+	M_Allocator         allocator            = ThreadContext.allocator;
 };
 
 //
@@ -67,14 +77,17 @@ struct R_Renderer2d {
 float  UnitCircleCosValues[MAX_CIRCLE_SEGMENTS];
 float  UnitcircleSinValues[MAX_CIRCLE_SEGMENTS];
 
-static R_Command2d FallbackDrawCmd;
-static R_Backend2d FallbackBackend;
+static R_Command2d       FallbackDrawCmd = {};
+static const R_Font      FallbackFont    = {};
+static const R_Backend2d FallbackBackend;
 
 static void R_InitNextDrawCommand(R_Renderer2d *r2) {
 	R_Command2d *command   = r2->write_command;
-	command->texture       = (uint32_t)(r2->texture.count - 1);
-	command->rect          = (uint32_t)(r2->rect.count - 1);
-	command->transform     = (uint32_t)(r2->transform.count - 1);
+	command->camera        = r2->camera;
+	command->pipeline      = r2->pipeline.Last();
+	command->texture       = r2->texture.Last();
+	command->rect          = r2->rect.Last();
+	command->transform     = r2->transform.Last();
 	command->vertex_offset = (uint32_t)r2->vertex.count;
 	command->index_offset  = (uint32_t)r2->index.count;
 	command->index_count   = 0;
@@ -129,6 +142,33 @@ static R_Index2d R_EnsurePrimitive(R_Renderer2d *r2, uint32_t vertex, uint32_t i
 	return -1;
 }
 
+static void R_LoadRendererResources(R_Renderer2d *r2) {
+	M_Allocator backup = ThreadContext.allocator;
+
+	ThreadContext.allocator = r2->allocator;
+
+	uint8_t pixels[]  = { 0xff, 0xff, 0xff, 0xff };
+	r2->white_texture = R_Backend_CreateTexture(r2, 1, 1, 4, pixels);
+
+	r2->default_font  = R_CreateFont(r2, String(RobotoMediumFontBytes, sizeof(RobotoMediumFontBytes)), 25.0f);
+
+	ThreadContext.allocator = backup;
+}
+
+static void R_ReleaseRendererResources(R_Renderer2d *r2) {
+	M_Allocator backup = ThreadContext.allocator;
+
+	ThreadContext.allocator = r2->allocator;
+
+	if (r2->white_texture)
+		R_Backend_DestroyTexture(r2, r2->white_texture);
+
+	if (r2->default_font)
+		R_DestroyFont(r2, r2->default_font);
+
+	ThreadContext.allocator = backup;
+}
+
 //
 //
 //
@@ -152,18 +192,16 @@ R_Renderer2d *R_CreateRenderer2d(R_Backend2d *backend, const R_Specification2d &
 	if (!r2) return nullptr;
 
 	if (!backend)
-		backend = &FallbackBackend;
+		backend = (R_Backend2d *)&FallbackBackend;
 
 	r2->backend = backend;
-
-	uint8_t pixels[]  = { 0xff, 0xff, 0xff, 0xff };
-	r2->white_texture = R_CreateTexture2d(r2, 1, 1, pixels);
-	r2->default_font  = R_CreateFont2d(r2, String(RobotoMediumFontBytes, sizeof(RobotoMediumFontBytes)), 18.0f);
+	R_LoadRendererResources(r2);
 
 	r2->command.Reserve(spec.command);
 	r2->vertex.Reserve(spec.vertex);
 	r2->index.Reserve(spec.index);
 
+	r2->pipeline.Reserve(spec.pipeline);
 	r2->texture.Reserve(spec.texture);
 	r2->rect.Reserve(spec.rect);
 	r2->transform.Reserve(spec.transform);
@@ -171,54 +209,66 @@ R_Renderer2d *R_CreateRenderer2d(R_Backend2d *backend, const R_Specification2d &
 
 	r2->thickness = spec.thickness;
 
+	r2->pipeline.Add(nullptr);
 	r2->texture.Add(r2->white_texture);
 	r2->rect.Add(R_Rect(0.0f, 0.0f, 0.0f, 0.0f));
 	r2->transform.Add(Identity());
 
-	if (!r2->texture.count || !r2->rect.count || !r2->transform.count || !r2->white_texture || !r2->default_font) {
+	if (!r2->default_font)
+		r2->default_font = (R_Font *)&FallbackFont;
+
+	if (!r2->pipeline.count || !r2->texture.count || !r2->rect.count || !r2->transform.count) {
 		R_DestroyRenderer2d(r2);
 		return nullptr;
 	}
+
+	r2->camera = { -1.0f, 1.0f, -1.0f, 1.0f, -1.0f, 1.0f };
+
+	R_PushDrawCommand(r2);
 
 	return r2;
 }
 
 void R_DestroyRenderer2d(R_Renderer2d *r2) {
-	if (r2->white_texture)
-		R_DestroyTexture2d(r2, r2->white_texture);
-
-	if (r2->default_font)
-		R_DestroyFont2d(r2, r2->default_font);
+	R_ReleaseRendererResources(r2);
+	
+	r2->backend->Release();
 
 	Free(r2->command);
 	Free(r2->vertex);
 	Free(r2->index);
+	Free(r2->pipeline);
 	Free(r2->texture);
 	Free(r2->rect);
 	Free(r2->path);
 
+
 	M_Free(r2, sizeof(*r2), r2->allocator);
 }
 
-R_Texture *R_CreateTexture2d(R_Renderer2d *r2, uint32_t w, uint32_t h, const uint8_t *pixels) {
-	return r2->backend->CreateTextureRGBA(w, h, pixels);
+R_Texture *R_Backend_CreateTexture(R_Renderer2d *r2, uint32_t w, uint32_t h, uint32_t n, const uint8_t *pixels) {
+	return r2->backend->CreateTexture(w, h, n, pixels);
 }
 
-void R_DestroyTexture2d(R_Renderer2d *r2, R_Texture *texture) {
+R_Texture *R_Backend_CreateTextureSRGBA(R_Renderer2d *r2, uint32_t w, uint32_t h, const uint8_t *pixels) {
+	return r2->backend->CreateTextureSRGBA(w, h, pixels);
+}
+
+void R_Backend_DestroyTexture(R_Renderer2d *r2, R_Texture *texture) {
 	r2->backend->DestroyTexture(texture);
 }
 
 R_Font_Glyph *R_FontFindGlyph(R_Font *font, uint32_t codepoint) {
 	if (codepoint < font->index.count) {
 		uint16_t index = font->index[codepoint];
-		if (index != -1) {
+		if (index != UINT16_MAX) {
 			return &font->glyphs[index];
 		}
 	}
 	return font->replacement;
 }
 
-R_Font *R_CreateFont2d(R_Renderer2d *r2, Array_View<R_Font_Config> configs, float height_in_pixels, const R_Font_Global_Config &global_config, M_Arena *tmp_arena) {
+R_Font *R_CreateFont(R_Renderer2d *r2, Array_View<R_Font_Config> configs, float height_in_pixels, const R_Font_Global_Config &global_config, M_Arena *tmp_arena) {
 	M_Temporary temp = M_BeginTemporaryMemory(tmp_arena);
 	Defer{ M_EndTemporaryMemory(&temp); };
 
@@ -358,7 +408,7 @@ R_Font *R_CreateFont2d(R_Renderer2d *r2, Array_View<R_Font_Config> configs, floa
 	memset(font->glyphs.data, 0, ArrSizeInBytes(font->glyphs));
 
 	for (uint16_t &val : font->index)
-		val = -1;
+		val = UINT16_MAX;
 
 	uint16_t index = 0;
 	for (int rect_index = 0; rect_index < rect_count; ++rect_index) {
@@ -388,10 +438,12 @@ R_Font *R_CreateFont2d(R_Renderer2d *r2, Array_View<R_Font_Config> configs, floa
 
 		R_Font_Glyph *glyph = &font->glyphs[index++];
 		glyph->codepoint    = rect->cp;
-		glyph->advance      = (float)advance * scale;
-		glyph->offset       = Vec2((float)x0, (float)-y1);
+		glyph->advance      = (float)advance * scale_x;
+		glyph->offset       = Vec2((float)x0, -(float)y1);
 		glyph->dimension    = Vec2((float)(x1 - x0), (float)(y1 - y0));
 		glyph->uv           = uv;
+
+		Swap(&glyph->uv.min.y, &glyph->uv.max.y);
 
 		stbtt_MakeGlyphBitmapSubpixel(font_info, 
 			&gray_pixels[rect->x + rect->y * texture_width], x1 - x0, y1 - y0, 
@@ -428,26 +480,28 @@ R_Font *R_CreateFont2d(R_Renderer2d *r2, Array_View<R_Font_Config> configs, floa
 		src_pixel += 1;
 	}
 
-	font->texture = r2->backend->CreateTextureRGBA(texture_width, texture_height, rgba_pixels);
+	font->texture = r2->backend->CreateTexture(texture_width, texture_height, 4, rgba_pixels);
 	if (!font->texture) {
-		R_DestroyFont2d(r2, font);
+		R_DestroyFont(r2, font);
 		return nullptr;
 	}
 
 	return font;
 }
 
-R_Font *R_CreateFont2d(R_Renderer2d *r2, String font_data, float height, Array_View<uint32_t> ranges, uint32_t index, const R_Font_Global_Config &global_config, M_Arena *tmp_arena) {
+R_Font *R_CreateFont(R_Renderer2d *r2, String font_data, float height, Array_View<uint32_t> ranges, uint32_t index, const R_Font_Global_Config &global_config, M_Arena *tmp_arena) {
 	R_Font_Config config;
 	config.ttf       = font_data;
 	config.index     = index;
 	config.cp_ranges = ranges;
-	return R_CreateFont2d(r2, Array_View<R_Font_Config>(&config, 1), height, global_config, tmp_arena);
+	return R_CreateFont(r2, Array_View<R_Font_Config>(&config, 1), height, global_config, tmp_arena);
 }
 
-void R_DestroyFont2d(R_Renderer2d *r2, R_Font *font) {
+void R_DestroyFont(R_Renderer2d *r2, R_Font *font) {
+	if (font == &FallbackFont) return;
+
 	if (font->texture)
-		R_DestroyTexture2d(r2, font->texture);
+		R_Backend_DestroyTexture(r2, font->texture);
 	MemFree(font, sizeof(R_Font) + ArrSizeInBytes(font->index) + ArrSizeInBytes(font->glyphs));
 }
 
@@ -457,6 +511,33 @@ R_Texture *R_DefaultTexture(R_Renderer2d *r2) {
 
 R_Font *R_DefaultFont(R_Renderer2d *r2) {
 	return r2->default_font;
+}
+
+R_Backend2d *R_GetBackend(R_Renderer2d *r2) {
+	return r2->backend;
+}
+
+R_Backend2d *R_SwapBackend(R_Renderer2d *r2, R_Backend2d *new_backend) {
+	// Textures and Pipeline must be release before swapping the backend
+	// This procedure MUST not be called in between R_NextFrame and R_FinishFrame
+	Assert(r2->texture.count == 1 && r2->pipeline.count == 1);
+
+	R_ReleaseRendererResources(r2);
+
+	R_Backend2d *prev = r2->backend;
+	r2->backend       = new_backend;
+
+	R_LoadRendererResources(r2);
+
+	// Replace the default texture in texture stack
+	r2->texture[0] = r2->white_texture;
+
+	return prev;
+}
+
+void R_SetBackend(R_Renderer2d *r2, R_Backend2d *backend) {
+	R_Backend2d *old_backend = R_SwapBackend(r2, backend);
+	old_backend->Release();
 }
 
 R_Memory2d R_GetMemoryInformation(R_Renderer2d *r2) {
@@ -515,28 +596,37 @@ void R_NextFrame(R_Renderer2d *r2, R_Rect region) {
 	r2->write_vertex  = nullptr;
 	r2->write_index   = nullptr;
 
+	r2->camera = { -1.0f, 1.0f, -1.0f, 1.0f, -1.0f, 1.0f };
+
 	R_PushDrawCommand(r2);
 }
 
-void R_FinishFrame(R_Renderer2d *r2, R_Command_Buffer *command_buffer) {
-	if (r2->command.count) {
-		if (r2->command.Last().index_count == 0)
-			r2->command.count -= 1;
+void R_FinishFrame(R_Renderer2d *r2, void *context) {
+	if (r2->command.count == 0)
+		return;
 
-		R_Description2d description;
-		description.commands   = r2->command;
-		description.transforms = r2->transform;
-		description.rects      = r2->rect;
-		description.textures   = r2->texture;
-		description.vertices   = r2->vertex;
-		description.indices    = r2->index;
+	R_Backend2d *backend = r2->backend;
 
-		r2->backend->DrawFrame(command_buffer, description);
+	if (!backend->UploadVertexData(context, r2->vertex.data, (uint32_t)ArrSizeInBytes(r2->vertex)))
+		return;
+
+	if (!backend->UploadIndexData(context, r2->index.data, (uint32_t)ArrSizeInBytes(r2->index)))
+		return;
+
+	for (const R_Command2d &cmd : r2->command) {
+		if (cmd.index_count == 0)
+			continue;
+
+		backend->SetCameraTransform(context, cmd.camera, cmd.transform);
+		backend->SetPipeline(context, cmd.pipeline);
+		backend->SetScissor(context, cmd.rect);
+		backend->SetTexture(context, cmd.texture);
+		backend->DrawTriangleList(context, cmd.index_count, cmd.index_offset, cmd.vertex_offset);
 	}
 }
 
 void R_NextDrawCommand(R_Renderer2d *r2) {
-	if (r2->write_command && r2->write_command->index_count)
+	if (r2->write_command->index_count)
 		R_PushDrawCommand(r2);
 }
 
@@ -545,15 +635,17 @@ void R_NextDrawCommand(R_Renderer2d *r2) {
 //
 
 void R_CameraView(R_Renderer2d *r2, float left, float right, float bottom, float top, float z_near, float z_far) {
-	if (r2->write_command && r2->write_command->index_count)
+	if (r2->write_command->index_count)
 		R_PushDrawCommand(r2);
 
-	r2->write_command->camera.left   = left;
-	r2->write_command->camera.right  = right;
-	r2->write_command->camera.bottom = bottom;
-	r2->write_command->camera.top    = top;
-	r2->write_command->camera.near   = z_near;
-	r2->write_command->camera.far    = z_far;
+	r2->camera.left   = left;
+	r2->camera.right  = right;
+	r2->camera.bottom = bottom;
+	r2->camera.top    = top;
+	r2->camera.near   = z_near;
+	r2->camera.far    = z_far;
+
+	r2->write_command->camera = r2->camera;
 }
 
 void R_CameraView(R_Renderer2d *r2, float aspect_ratio, float height) {
@@ -582,12 +674,31 @@ void R_SetLineThickness(R_Renderer2d *r2, float thickness) {
 	r2->thickness = thickness;
 }
 
+void R_SetPipeline(R_Renderer2d *r2, R_Pipeline *pipeline) {
+	R_Pipeline *prev_pipeline = r2->pipeline[r2->pipeline.count - 1];
+	if (prev_pipeline != pipeline && r2->write_command->index_count)
+		R_PushDrawCommand(r2);
+	r2->pipeline[r2->pipeline.count - 1] = pipeline;
+	r2->write_command->pipeline          = pipeline;
+}
+
+void R_PushPipeline(R_Renderer2d *r2, R_Pipeline *pipeline) {
+	r2->pipeline.Add(r2->pipeline.Last());
+	R_SetPipeline(r2, pipeline);
+}
+
+void R_PopPipeline(R_Renderer2d *r2) {
+	Assert(r2->pipeline.count > 1);
+	R_SetPipeline(r2, r2->pipeline[r2->pipeline.count - 2]);
+	r2->pipeline.RemoveLast();
+}
+
 void R_SetTexture(R_Renderer2d *r2, R_Texture *texture) {
-	void *prev_texture = r2->texture[r2->texture.count - 1];
-	if (prev_texture != texture && r2->write_command && r2->write_command->index_count)
+	R_Texture *prev_texture = r2->texture[r2->texture.count - 1];
+	if (prev_texture != texture && r2->write_command->index_count)
 		R_PushDrawCommand(r2);
 	r2->texture[r2->texture.count - 1] = texture;
-	r2->write_command->texture = (uint32_t)(r2->texture.count - 1);
+	r2->write_command->texture         = texture;
 }
 
 void R_PushTexture(R_Renderer2d *r2, R_Texture *texture) {
@@ -603,10 +714,10 @@ void R_PopTexture(R_Renderer2d *r2) {
 
 void R_SetRect(R_Renderer2d *r2, R_Rect rect) {
 	R_Rect prev_rect = r2->rect[r2->rect.count - 1];
-	if (memcmp(&prev_rect, &rect, sizeof(rect)) == 0 && r2->write_command && r2->write_command->index_count)
+	if (memcmp(&prev_rect, &rect, sizeof(rect)) == 0 && r2->write_command->index_count)
 		R_PushDrawCommand(r2);
 	r2->rect[r2->rect.count - 1] = rect;
-	r2->write_command->rect      = (uint32_t)(r2->rect.count - 1);
+	r2->write_command->rect      = rect;
 }
 
 void R_PushRect(R_Renderer2d *r2, R_Rect rect) {
@@ -622,10 +733,10 @@ void R_PopRect(R_Renderer2d *r2) {
 
 void R_SetTransform(R_Renderer2d *r2, const Mat4 &transform) {
 	const Mat4 *prev = &r2->transform[r2->transform.count - 1];
-	if (memcmp(prev, &transform, sizeof(transform)) == 0 && r2->write_command && r2->write_command->index_count)
+	if (memcmp(prev, &transform, sizeof(transform)) == 0 && r2->write_command->index_count)
 		R_PushDrawCommand(r2);
 	r2->transform[r2->transform.count - 1] = transform;
-	r2->write_command->transform = (uint32_t)(r2->transform.count - 1);
+	r2->write_command->transform           = transform;
 }
 
 void R_PushTransform(R_Renderer2d *r2, const Mat4 &transform) {
@@ -1503,34 +1614,37 @@ static int R_UTF8ToCodepoint(const uint8_t *start, const uint8_t *end, uint32_t 
 	}
 
 	if ((first & 0xe0) == 0xc0) {
-		if (start + 2 < end) {
+		if (start + 1 < end) {
 			*codepoint = ((int)(start[0] & 0x1f) << 6);
 			*codepoint |= (int)(start[1] & 0x3f);
 			return 2;
 		} else {
+			*codepoint = 0xfffd;
 			return (int)(end - start);
 		}
 	}
 
 	if ((first & 0xf0) == 0xe0) {
-		if (start + 3 < end) {
+		if (start + 2 <= end) {
 			*codepoint = ((int)(start[0] & 0x0f) << 12);
 			*codepoint |= ((int)(start[1] & 0x3f) << 6);
 			*codepoint |= (int)(start[2] & 0x3f);
 			return 3;
 		} else {
+			*codepoint = 0xfffd;
 			return (int)(end - start);
 		}
 	}
 	
 	if ((first & 0xf8) == 0xf0) {
-		if (start + 4 < end) {
+		if (start + 3 < end) {
 			*codepoint = ((int)(start[0] & 0x07) << 18);
 			*codepoint |= ((int)(start[1] & 0x3f) << 12);
 			*codepoint |= ((int)(start[2] & 0x3f) << 6);
 			*codepoint |= (int)(start[3] & 0x3f);
 			return 4;
 		} else {
+			*codepoint = 0xfffd;
 			return (int)(end - start);
 		}
 	}

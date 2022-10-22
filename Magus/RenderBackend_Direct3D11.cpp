@@ -96,33 +96,16 @@ static_assert(ArrayCount(BufferUsageMap) == _R_BUFFER_USAGE_COUNT, "");
 
 static constexpr DXGI_FORMAT FormatMap[] = {
 	DXGI_FORMAT_R32G32B32A32_FLOAT,
-	DXGI_FORMAT_R32G32B32A32_UINT,
-	DXGI_FORMAT_R32G32B32A32_SINT,
-	DXGI_FORMAT_R32G32B32_FLOAT,
-	DXGI_FORMAT_R32G32B32_UINT,
-	DXGI_FORMAT_R32G32B32_SINT,
 	DXGI_FORMAT_R16G16B16A16_FLOAT,
-	DXGI_FORMAT_R16G16B16A16_UINT,
-	DXGI_FORMAT_R16G16B16A16_SINT,
-	DXGI_FORMAT_R32G32_FLOAT,
-	DXGI_FORMAT_R32G32_UINT,
-	DXGI_FORMAT_R32G32_SINT,
 	DXGI_FORMAT_R8G8B8A8_UNORM,
 	DXGI_FORMAT_R8G8B8A8_UNORM_SRGB,
-	DXGI_FORMAT_R8G8B8A8_UINT,
-	DXGI_FORMAT_R8G8B8A8_SNORM,
-	DXGI_FORMAT_R8G8B8A8_SINT,
-	DXGI_FORMAT_R16G16_UNORM,
-	DXGI_FORMAT_R16G16_UINT,
-	DXGI_FORMAT_R16G16_SNORM,
-	DXGI_FORMAT_R16G16_SINT,
+	DXGI_FORMAT_R32G32B32_FLOAT,
+	DXGI_FORMAT_R32G32_FLOAT,
+	DXGI_FORMAT_R8G8_UNORM,
 	DXGI_FORMAT_R32_FLOAT,
 	DXGI_FORMAT_R32_UINT,
-	DXGI_FORMAT_R32_SINT,
-	DXGI_FORMAT_R8G8_UNORM,
-	DXGI_FORMAT_R8G8_UINT,
-	DXGI_FORMAT_R8G8_SNORM,
-	DXGI_FORMAT_R8G8_SINT,
+	DXGI_FORMAT_R16_UINT,
+	DXGI_FORMAT_R8_UNORM,
 };
 static_assert(ArrayCount(FormatMap) == _R_FORMAT_COUNT, "");
 
@@ -272,22 +255,22 @@ static UINT ConvertBufferFlags(uint32_t access_flags) {
 	return flags;
 }
 
-static D3D11_DEPTH_STENCIL_DESC ConvertDepthStencilDesc(const R_Depth_Stencil &src) {
+static D3D11_DEPTH_STENCIL_DESC ConvertDepthStencilDesc(const R_Depth_Stencil *src) {
 	D3D11_DEPTH_STENCIL_DESC dst;
-	dst.DepthEnable                  = src.depth.enable;
-	dst.DepthWriteMask               = DepthWriteMaskMap[src.depth.write_mask];
-	dst.DepthFunc                    = ComparisonMap[src.depth.comparison];
-	dst.StencilEnable                = src.stencil.enable;
-	dst.StencilReadMask              = src.stencil.read_mask;
-	dst.StencilWriteMask             = src.stencil.write_mask;
-	dst.FrontFace.StencilFailOp      = StencilOpMap[src.stencil.front_face.fail_op];
-	dst.FrontFace.StencilDepthFailOp = StencilOpMap[src.stencil.front_face.depth_fail_op];
-	dst.FrontFace.StencilPassOp      = StencilOpMap[src.stencil.front_face.pass_op];
-	dst.FrontFace.StencilFunc        = ComparisonMap[src.stencil.front_face.comparison];
-	dst.BackFace.StencilFailOp       = StencilOpMap[src.stencil.back_face.fail_op];
-	dst.BackFace.StencilDepthFailOp  = StencilOpMap[src.stencil.back_face.depth_fail_op];
-	dst.BackFace.StencilPassOp       = StencilOpMap[src.stencil.back_face.pass_op];
-	dst.BackFace.StencilFunc         = ComparisonMap[src.stencil.back_face.comparison];
+	dst.DepthEnable                  = src->depth.enable;
+	dst.DepthWriteMask               = DepthWriteMaskMap[src->depth.write_mask];
+	dst.DepthFunc                    = ComparisonMap[src->depth.comparison];
+	dst.StencilEnable                = src->stencil.enable;
+	dst.StencilReadMask              = src->stencil.read_mask;
+	dst.StencilWriteMask             = src->stencil.write_mask;
+	dst.FrontFace.StencilFailOp      = StencilOpMap[src->stencil.front_face.fail_op];
+	dst.FrontFace.StencilDepthFailOp = StencilOpMap[src->stencil.front_face.depth_fail_op];
+	dst.FrontFace.StencilPassOp      = StencilOpMap[src->stencil.front_face.pass_op];
+	dst.FrontFace.StencilFunc        = ComparisonMap[src->stencil.front_face.comparison];
+	dst.BackFace.StencilFailOp       = StencilOpMap[src->stencil.back_face.fail_op];
+	dst.BackFace.StencilDepthFailOp  = StencilOpMap[src->stencil.back_face.depth_fail_op];
+	dst.BackFace.StencilPassOp       = StencilOpMap[src->stencil.back_face.pass_op];
+	dst.BackFace.StencilFunc         = ComparisonMap[src->stencil.back_face.comparison];
 	return dst;
 }
 
@@ -301,48 +284,48 @@ static uint8_t ConvertWriteMask(uint8_t mask) {
 }
 
 
-static D3D11_RASTERIZER_DESC ConvertRasterizerDesc(const R_Rasterizer &src) {
+static D3D11_RASTERIZER_DESC ConvertRasterizerDesc(const R_Rasterizer *src) {
 	D3D11_RASTERIZER_DESC dst;
-	dst.FillMode              = FillModeMap[src.fill_mode];
-	dst.CullMode              = CullModeMap[src.cull_mode];
-	dst.FrontCounterClockwise = src.front_clockwise;
-	dst.DepthBias             = src.depth_bias;
-	dst.DepthBiasClamp        = src.depth_bias_clamp;
+	dst.FillMode              = FillModeMap[src->fill_mode];
+	dst.CullMode              = CullModeMap[src->cull_mode];
+	dst.FrontCounterClockwise = src->front_clockwise;
+	dst.DepthBias             = src->depth_bias;
+	dst.DepthBiasClamp        = src->depth_bias_clamp;
 	dst.SlopeScaledDepthBias  = 0.0f;
-	dst.DepthClipEnable       = src.depth_clip_enable;
-	dst.ScissorEnable         = src.scissor_enable;
-	dst.MultisampleEnable     = src.multisample_enable;
-	dst.AntialiasedLineEnable = src.anti_aliased_line_enable;
+	dst.DepthClipEnable       = src->depth_clip_enable;
+	dst.ScissorEnable         = src->scissor_enable;
+	dst.MultisampleEnable     = src->multisample_enable;
+	dst.AntialiasedLineEnable = src->anti_aliased_line_enable;
 	return dst;
 }
 
-static D3D11_SAMPLER_DESC ConvertSamplerDesc(const R_Sampler &src) {
+static D3D11_SAMPLER_DESC ConvertSamplerDesc(const R_Sampler *src) {
 	D3D11_SAMPLER_DESC dst;
-	dst.Filter         = FilterMap[src.filter];
-	dst.AddressU       = TextureAddressModeMap[src.address_u];
-	dst.AddressV       = TextureAddressModeMap[src.address_v];
-	dst.AddressW       = TextureAddressModeMap[src.address_w];
-	dst.MipLODBias     = src.mip_lod_bias;
-	dst.MaxAnisotropy  = src.max_anisotropy;
-	dst.ComparisonFunc = ComparisonMap[src.comparison];
-	dst.BorderColor[0] = src.border_color[0];
-	dst.BorderColor[1] = src.border_color[1];
-	dst.BorderColor[2] = src.border_color[2];
-	dst.BorderColor[3] = src.border_color[3];
-	dst.MinLOD         = src.min_lod;
-	dst.MaxLOD         = src.max_lod;
+	dst.Filter         = FilterMap[src->filter];
+	dst.AddressU       = TextureAddressModeMap[src->address_u];
+	dst.AddressV       = TextureAddressModeMap[src->address_v];
+	dst.AddressW       = TextureAddressModeMap[src->address_w];
+	dst.MipLODBias     = src->mip_lod_bias;
+	dst.MaxAnisotropy  = src->max_anisotropy;
+	dst.ComparisonFunc = ComparisonMap[src->comparison];
+	dst.BorderColor[0] = src->border_color[0];
+	dst.BorderColor[1] = src->border_color[1];
+	dst.BorderColor[2] = src->border_color[2];
+	dst.BorderColor[3] = src->border_color[3];
+	dst.MinLOD         = src->min_lod;
+	dst.MaxLOD         = src->max_lod;
 	return dst;
 }
 
-static D3D11_BLEND_DESC ConvertBlendDesc(const R_Blend &src) {
+static D3D11_BLEND_DESC ConvertBlendDesc(const R_Blend *src) {
 	D3D11_BLEND_DESC dst;
 	dst.AlphaToCoverageEnable  = FALSE;
 	dst.IndependentBlendEnable = FALSE;
 
-	static_assert(ArrayCount(src.render_target) == ArrayCount(dst.RenderTarget), "");
+	static_assert(ArrayCount(src->render_target) == ArrayCount(dst.RenderTarget), "");
 
 	for (uint32_t index = 0; index < ArrayCount(dst.RenderTarget); ++index) {
-		auto& src_target = src.render_target[index];
+		auto& src_target = src->render_target[index];
 		auto& dst_target = dst.RenderTarget[index];
 
 		dst_target.BlendEnable           = src_target.enable;
@@ -469,23 +452,23 @@ R_RENDER_API void R_DestroyDevice(R_Device *device) {
 	device1->Release();
 }
 
-R_RENDER_API R_Command_Queue *R_CreateCommandQueue(R_Device *device) {
+R_RENDER_API R_Queue *R_CreateRenderQueue(R_Device *device) {
 	ID3D11Device1 *device1 = (ID3D11Device1 *)device;
 
 	ID3D11DeviceContext1 *imm;
 	device1->GetImmediateContext1(&imm);
 
-	return (R_Command_Queue *)imm;
+	return (R_Queue *)imm;
 }
 
-R_RENDER_API void R_DestroyCommandQueue(R_Command_Queue *queue) {
+R_RENDER_API void R_DestroyRenderQueue(R_Queue *queue) {
 	ID3D11DeviceContext1 *imm = (ID3D11DeviceContext1 *)queue;
 	imm->Release();
 }
 
-R_RENDER_API void R_Submit(R_Command_Queue *queue, R_Command_Buffer *buffer) {
+R_RENDER_API void R_Submit(R_Queue *queue, R_List *list) {
 	ID3D11DeviceContext1 *immediate_context = (ID3D11DeviceContext1 *)queue;
-	ID3D11DeviceContext1 *deferred_context  = (ID3D11DeviceContext1 *)buffer;
+	ID3D11DeviceContext1 *deferred_context  = (ID3D11DeviceContext1 *)list;
 
 	ID3D11CommandList *command_list = nullptr;
 	deferred_context->FinishCommandList(false, &command_list);
@@ -495,17 +478,24 @@ R_RENDER_API void R_Submit(R_Command_Queue *queue, R_Command_Buffer *buffer) {
 	}
 }
 
-R_RENDER_API R_Command_Buffer *R_CreateCommandBuffer(R_Device *device) {
+R_RENDER_API void R_Flush(R_Queue *queue) {
+	ID3D11DeviceContext1 *immediate_context = (ID3D11DeviceContext1 *)queue;
+	immediate_context->ClearState();
+	immediate_context->Flush();
+}
+
+R_RENDER_API R_List *R_CreateRenderList(R_Device *device) {
 	ID3D11Device1 *device1 = (ID3D11Device1 *)device;
 
 	ID3D11DeviceContext1 *deferred_context;
 	device1->CreateDeferredContext1(0, &deferred_context);
 
-	return (R_Command_Buffer *)deferred_context;
+	return (R_List *)deferred_context;
 }
 
-R_RENDER_API void R_DestroyCommandBuffer(R_Command_Buffer *buffer) {
-	ID3D11DeviceContext1 *deferred_context = (ID3D11DeviceContext1 *)buffer;
+R_RENDER_API void R_DestroyRenderList(R_List *list) {
+	ID3D11DeviceContext1 *deferred_context = (ID3D11DeviceContext1 *)list;
+	deferred_context->Release();
 }
 
 struct R_Swap_Chain {
@@ -601,20 +591,53 @@ R_RENDER_API void R_SetSyncInterval(R_Swap_Chain *swap_chain, uint32_t interval)
 	swap_chain->sync_interval = interval;
 }
 
-R_RENDER_API R_Render_Target *R_GetSwapChainRenderTarget(R_Swap_Chain *swap_chain) {
+R_RENDER_API void R_ResizeRenderTargets(R_Device *device, R_Swap_Chain *swap_chain, uint32_t w, uint32_t h) {
+	if (w && h) {
+		swap_chain->render_target->Release();
+		swap_chain->render_target = nullptr;
+		swap_chain->render_target_w = 0;
+		swap_chain->render_target_h = 0;
+
+		swap_chain->native->ResizeBuffers(BufferCount, 0, 0, DXGI_FORMAT_UNKNOWN, 0);
+
+		ID3D11Texture2D *back_buffer = nullptr;
+		HRESULT hr = swap_chain->native->GetBuffer(0, IID_PPV_ARGS(&back_buffer));
+		if (FAILED(hr)) {
+			R_ReportDXGIError(hr);
+			return;
+		}
+
+		Defer{ back_buffer->Release(); };
+
+		ID3D11Device1 *device1 = (ID3D11Device1 *)device;
+
+		hr = device1->CreateRenderTargetView(back_buffer, NULL, &swap_chain->render_target);
+		if (FAILED(hr)) {
+			R_ReportDXGIError(hr);
+			return;
+		}
+
+		D3D11_TEXTURE2D_DESC render_target_desc;
+		back_buffer->GetDesc(&render_target_desc);
+		swap_chain->render_target_w = render_target_desc.Width;
+		swap_chain->render_target_h = render_target_desc.Height;
+	}
+}
+
+R_RENDER_API R_Render_Target *R_GetRenderTarget(R_Swap_Chain *swap_chain) {
 	return (R_Render_Target *)swap_chain->render_target;
 }
 
-R_RENDER_API void R_GetSwapChainRenderTargetSize(R_Swap_Chain *swap_chain, uint32_t *w, uint32_t *h) {
-	*w = swap_chain->render_target_w;
-	*h = swap_chain->render_target_h;
+R_RENDER_API void R_GetRenderTargetSize(R_Swap_Chain *swap_chain, float *w, float *h) {
+	*w = (float)swap_chain->render_target_w;
+	*h = (float)swap_chain->render_target_h;
 }
 
 R_RENDER_API void R_Present(R_Swap_Chain *swap_chain) {
 	swap_chain->native->Present(swap_chain->sync_interval, 0);
 }
 
-R_RENDER_API void R_GetRenderTargetSize(R_Render_Target *render_target, uint32_t *w, uint32_t *h) {
+R_RENDER_API void R_RenderTargetSize(R_Render_Target *render_target, float *w, float *h) {
 	ID3D11RenderTargetView *view = (ID3D11RenderTargetView *)render_target;
 
 	ID3D11Texture2D *texture;
@@ -622,8 +645,8 @@ R_RENDER_API void R_GetRenderTargetSize(R_Render_Target *render_target, uint32_t
 
 	D3D11_TEXTURE2D_DESC render_target_desc;
 	texture->GetDesc(&render_target_desc);
-	*w = render_target_desc.Width;
-	*h = render_target_desc.Height;
+	*w = (float)render_target_desc.Width;
+	*h = (float)render_target_desc.Height;
 
 	texture->Release();
 }
@@ -668,10 +691,10 @@ R_RENDER_API R_Pipeline *R_CreatePipeline(R_Device *device, const R_Pipeline_Con
 
 	D3D11_INPUT_ELEMENT_DESC input_elements[15];
 
-	Assert(config.input_layout.count < ArrayCount(input_elements));
+	Assert(config.input_layout->count < ArrayCount(input_elements));
 
-	for (ptrdiff_t index = 0; index < config.input_layout.count; ++index) {
-		const R_Input_Layout_Element *src = &config.input_layout.data[index];
+	for (ptrdiff_t index = 0; index < config.input_layout->count; ++index) {
+		const R_Input_Layout_Element *src = &config.input_layout->data[index];
 		D3D11_INPUT_ELEMENT_DESC *dst     = &input_elements[index];
 		dst->SemanticName                 = src->name;
 		dst->SemanticIndex                = src->index;
@@ -682,7 +705,7 @@ R_RENDER_API R_Pipeline *R_CreatePipeline(R_Device *device, const R_Pipeline_Con
 		dst->InstanceDataStepRate         = src->instance_data_step_rate;
 	}
 
-	hresult = device1->CreateInputLayout(input_elements, config.input_layout.count, vertex.data, vertex.count, &p->input_layout);
+	hresult = device1->CreateInputLayout(input_elements, (uint32_t)config.input_layout->count, vertex.data, vertex.count, &p->input_layout);
 	if (FAILED(hresult)) {
 		R_DestroyPipeline(p);
 		LogErrorEx("D3D11 Backend", "Pipeline creation failed. Reason: Failed to create input layout");
@@ -806,10 +829,9 @@ R_RENDER_API void R_DestroyBuffer(R_Buffer *buffer) {
 	d3d11buffer->Release();
 }
 
-R_RENDER_API R_Texture *R_CreateTextureRGBA(R_Device *device, uint32_t width, uint32_t height, uint8_t *pixels, uint32_t flags) {
+R_RENDER_API R_Texture *R_CreateTexture(R_Device *device, R_Format format, uint32_t width, uint32_t height, const uint8_t *pixels, uint32_t flags) {
 	ID3D11Device1 *device1 = (ID3D11Device1 *)device;
 
-	bool srgb = (flags & R_TEXTURE_SRGB);
 	bool mipmaps = (flags & R_TEXTURE_GEN_MIPMAPS);
 
 	D3D11_TEXTURE2D_DESC desc;
@@ -817,7 +839,7 @@ R_RENDER_API R_Texture *R_CreateTextureRGBA(R_Device *device, uint32_t width, ui
 	desc.Height             = height;
 	desc.MipLevels          = mipmaps ? 0 : 1;
 	desc.ArraySize          = 1;
-	desc.Format             = srgb ? DXGI_FORMAT_R8G8B8A8_UNORM_SRGB : DXGI_FORMAT_R8G8B8A8_UNORM;
+	desc.Format             = FormatMap[format];
 	desc.SampleDesc.Quality = 0;
 	desc.SampleDesc.Count   = 1;
 	desc.Usage              = D3D11_USAGE_IMMUTABLE;
@@ -858,8 +880,8 @@ R_RENDER_API void R_DestroyTexture(R_Texture *texture) {
 	shader_resource_view->Release();
 }
 
-R_RENDER_API void *R_MapBuffer(R_Command_Buffer *command_buffer, R_Buffer *buffer) {
-	ID3D11DeviceContext1 *deferred_context = (ID3D11DeviceContext1 *)command_buffer;
+R_RENDER_API void *R_MapBuffer(R_List *list, R_Buffer *buffer) {
+	ID3D11DeviceContext1 *deferred_context = (ID3D11DeviceContext1 *)list;
 
 	ID3D11Resource *resource = (ID3D11Resource *)buffer;
 
@@ -873,21 +895,21 @@ R_RENDER_API void *R_MapBuffer(R_Command_Buffer *command_buffer, R_Buffer *buffe
 	return nullptr;
 }
 
-R_RENDER_API void R_UnmapBuffer(R_Command_Buffer *command_buffer, R_Buffer *buffer) {
-	ID3D11DeviceContext1 *deferred_context = (ID3D11DeviceContext1 *)command_buffer;
+R_RENDER_API void R_UnmapBuffer(R_List *list, R_Buffer *buffer) {
+	ID3D11DeviceContext1 *deferred_context = (ID3D11DeviceContext1 *)list;
 
 	ID3D11Resource *resource = (ID3D11Resource *)buffer;
 	deferred_context->Unmap(resource, 0);
 }
 
-R_RENDER_API void R_ClearRenderTarget(R_Command_Buffer *buffer, R_Render_Target *render_target, const float color[4]) {
-	ID3D11DeviceContext1 *deferred_context = (ID3D11DeviceContext1 *)buffer;
+R_RENDER_API void R_ClearRenderTarget(R_List *list, R_Render_Target *render_target, const float color[4]) {
+	ID3D11DeviceContext1 *deferred_context = (ID3D11DeviceContext1 *)list;
 	ID3D11RenderTargetView *render_target_view = (ID3D11RenderTargetView *)render_target;
 	deferred_context->ClearRenderTargetView(render_target_view, color);
 }
 
-R_RENDER_API void R_SetPipeline(R_Command_Buffer *buffer, R_Pipeline *pipeline) {
-	ID3D11DeviceContext1 *deferred_context = (ID3D11DeviceContext1 *)buffer;
+R_RENDER_API void R_SetPipeline(R_List *list, R_Pipeline *pipeline) {
+	ID3D11DeviceContext1 *deferred_context = (ID3D11DeviceContext1 *)list;
 	deferred_context->IASetInputLayout(pipeline->input_layout);
 	deferred_context->VSSetShader(pipeline->vertex_shader, nullptr, 0);
 	deferred_context->PSSetShader(pipeline->pixel_shader, nullptr, 0);
@@ -897,29 +919,29 @@ R_RENDER_API void R_SetPipeline(R_Command_Buffer *buffer, R_Pipeline *pipeline) 
 	deferred_context->RSSetState(pipeline->rasterizer);
 }
 
-R_RENDER_API void R_SetVertexBuffers(R_Command_Buffer *command_buffer, R_Buffer **buffer, uint32_t *stride, uint32_t *offset, uint32_t location, uint32_t count) {
-	ID3D11DeviceContext1 *deferred_context = (ID3D11DeviceContext1 *)command_buffer;
+R_RENDER_API void R_SetVertexBuffers(R_List *list, R_Buffer **buffer, uint32_t *stride, uint32_t *offset, uint32_t location, uint32_t count) {
+	ID3D11DeviceContext1 *deferred_context = (ID3D11DeviceContext1 *)list;
 
 	static_assert(sizeof(UINT) == sizeof(uint32_t), "");
 
 	deferred_context->IASetVertexBuffers(location, count, (ID3D11Buffer **)buffer, stride, offset);
 }
 
-R_RENDER_API void R_SetIndexBuffer(R_Command_Buffer *command_buffer, R_Buffer *buffer, R_Format format, uint32_t offset) {
-	ID3D11DeviceContext1 *deferred_context = (ID3D11DeviceContext1 *)command_buffer;
+R_RENDER_API void R_SetIndexBuffer(R_List *list, R_Buffer *buffer, R_Format format, uint32_t offset) {
+	ID3D11DeviceContext1 *deferred_context = (ID3D11DeviceContext1 *)list;
 	ID3D11Buffer *buffer_handle = (ID3D11Buffer *)buffer;
 	DXGI_FORMAT index_fmt = FormatMap[format];
 	deferred_context->IASetIndexBuffer(buffer_handle, index_fmt, (UINT)offset);
 }
 
-R_RENDER_API void R_SetPrimitiveTopology(R_Command_Buffer *buffer, R_Primitive_Topology topology) {
-	ID3D11DeviceContext1 *deferred_context = (ID3D11DeviceContext1 *)buffer;
+R_RENDER_API void R_SetPrimitiveTopology(R_List *list, R_Primitive_Topology topology) {
+	ID3D11DeviceContext1 *deferred_context = (ID3D11DeviceContext1 *)list;
 	D3D11_PRIMITIVE_TOPOLOGY prim_topology = PrimitiveTopologyMap[topology];
 	deferred_context->IASetPrimitiveTopology(prim_topology);
 }
 
-R_RENDER_API void R_SetConstantBuffers(R_Command_Buffer *command_buffer, R_Shader shader, R_Buffer **buffer, uint32_t location, uint32_t count) {
-	ID3D11DeviceContext1 *deferred_context = (ID3D11DeviceContext1 *)command_buffer;
+R_RENDER_API void R_SetConstantBuffers(R_List *list, R_Shader shader, R_Buffer **buffer, uint32_t location, uint32_t count) {
+	ID3D11DeviceContext1 *deferred_context = (ID3D11DeviceContext1 *)list;
 	if (shader == R_SHADER_VERTEX)
 		deferred_context->VSSetConstantBuffers(location, count, (ID3D11Buffer **)buffer);
 	else if (shader == R_SHADER_PIXEL)
@@ -928,18 +950,18 @@ R_RENDER_API void R_SetConstantBuffers(R_Command_Buffer *command_buffer, R_Shade
 		Unreachable();
 }
 
-R_RENDER_API void R_SetTextures(R_Command_Buffer *buffer, R_Texture **texture, uint32_t location, uint32_t count) {
-	ID3D11DeviceContext1 *deferred_context = (ID3D11DeviceContext1 *)buffer;
+R_RENDER_API void R_SetTextures(R_List *list, R_Texture **texture, uint32_t location, uint32_t count) {
+	ID3D11DeviceContext1 *deferred_context = (ID3D11DeviceContext1 *)list;
 	deferred_context->PSSetShaderResources(location, count, (ID3D11ShaderResourceView **)texture);
 }
 
-R_RENDER_API void R_SetRenderTargets(R_Command_Buffer *buffer, uint32_t count, R_Render_Target *render_targets[], R_Depth_Stencil *depth_stencil) {
-	ID3D11DeviceContext1 *deferred_context = (ID3D11DeviceContext1 *)buffer;
+R_RENDER_API void R_SetRenderTargets(R_List *list, uint32_t count, R_Render_Target *render_targets[], R_Depth_Stencil *depth_stencil) {
+	ID3D11DeviceContext1 *deferred_context = (ID3D11DeviceContext1 *)list;
 	deferred_context->OMSetRenderTargets(count, (ID3D11RenderTargetView **)render_targets, (ID3D11DepthStencilView *)depth_stencil);
 }
 
-R_RENDER_API void R_SetViewports(R_Command_Buffer *buffer, R_Viewport *viewports, uint32_t count) {
-	ID3D11DeviceContext1 *deferred_context = (ID3D11DeviceContext1 *)buffer;
+R_RENDER_API void R_SetViewports(R_List *list, R_Viewport *viewports, uint32_t count) {
+	ID3D11DeviceContext1 *deferred_context = (ID3D11DeviceContext1 *)list;
 
 	D3D11_VIEWPORT d3dviewports[8];
 	ID3D11RenderTargetView *render_target_views[8] = {};
@@ -952,12 +974,12 @@ R_RENDER_API void R_SetViewports(R_Command_Buffer *buffer, R_Viewport *viewports
 		ID3D11RenderTargetView *render_target_view = render_target_views[i];
 		Assert(render_target_view);
 
-		uint32_t w, h;
-		R_GetRenderTargetSize((R_Render_Target *)render_target_view, &w, &h);
+		float w, h;
+		R_RenderTargetSize((R_Render_Target *)render_target_view, &w, &h);
 
 		D3D11_VIEWPORT *viewport = &d3dviewports[i];
 		viewport->TopLeftX       = viewports[i].x;
-		viewport->TopLeftY       = (float)h - viewports[i].y - viewports[i].height;
+		viewport->TopLeftY       = h - viewports[i].y - viewports[i].height;
 		viewport->Width          = viewports[i].width;
 		viewport->Height         = viewports[i].height;
 		viewport->MinDepth       = viewports[i].min_depth;
@@ -969,8 +991,8 @@ R_RENDER_API void R_SetViewports(R_Command_Buffer *buffer, R_Viewport *viewports
 	deferred_context->RSSetViewports(count, d3dviewports);
 }
 
-R_RENDER_API void R_SetScissors(R_Command_Buffer *buffer, R_Scissor *scissors, uint32_t count) {
-	ID3D11DeviceContext1 *deferred_context = (ID3D11DeviceContext1 *)buffer;
+R_RENDER_API void R_SetScissors(R_List *list, R_Scissor *scissors, uint32_t count) {
+	ID3D11DeviceContext1 *deferred_context = (ID3D11DeviceContext1 *)list;
 
 	D3D11_RECT rects[8];
 	ID3D11RenderTargetView *render_target_views[8] = {};
@@ -983,8 +1005,8 @@ R_RENDER_API void R_SetScissors(R_Command_Buffer *buffer, R_Scissor *scissors, u
 		ID3D11RenderTargetView *render_target_view = render_target_views[i];
 		Assert(render_target_view);
 
-		uint32_t w, h;
-		R_GetRenderTargetSize((R_Render_Target *)render_target_view, &w, &h);
+		float w, h;
+		R_RenderTargetSize((R_Render_Target *)render_target_view, &w, &h);
 
 		D3D11_RECT *rect = &rects[i];
 		rect->left       = (LONG)scissors[i].min_x;
@@ -998,12 +1020,12 @@ R_RENDER_API void R_SetScissors(R_Command_Buffer *buffer, R_Scissor *scissors, u
 	deferred_context->RSSetScissorRects(count, rects);
 }
 
-R_RENDER_API void R_Draw(R_Command_Buffer *buffer, uint32_t vertex_count, uint32_t start_vertex_location) {
-	ID3D11DeviceContext1 *deferred_context = (ID3D11DeviceContext1 *)buffer;
+R_RENDER_API void R_Draw(R_List *list, uint32_t vertex_count, uint32_t start_vertex_location) {
+	ID3D11DeviceContext1 *deferred_context = (ID3D11DeviceContext1 *)list;
 	deferred_context->Draw(vertex_count, start_vertex_location);
 }
 
-R_RENDER_API void R_DrawIndexed(R_Command_Buffer *buffer, uint32_t index_count, uint32_t start_index_location, uint32_t base_vertex_location) {
-	ID3D11DeviceContext1 *deferred_context = (ID3D11DeviceContext1 *)buffer;
+R_RENDER_API void R_DrawIndexed(R_List *list, uint32_t index_count, uint32_t start_index_location, uint32_t base_vertex_location) {
+	ID3D11DeviceContext1 *deferred_context = (ID3D11DeviceContext1 *)list;
 	deferred_context->DrawIndexed(index_count, start_index_location, (INT)base_vertex_location);
 }

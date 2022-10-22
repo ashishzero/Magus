@@ -15,11 +15,29 @@ constexpr int DEFAULT_BEZIER_SEGMENTS = 48;
 static constexpr int MIN_CIRCLE_SEGMENTS = 12;
 static constexpr int MAX_CIRCLE_SEGMENTS = 512; // MUST BE POWER OF 2
 
+struct R_Vertex2d {
+	Vec3 position;
+	Vec2 tex_coord;
+	Vec4 color;
+};
+
+typedef uint32_t R_Index2d;
+
+struct R_Camera2d {
+	float left;
+	float right;
+	float bottom;
+	float top;
+	float near;
+	float far;
+};
+
 struct R_Specification2d {
 	uint32_t command;
 	uint32_t vertex;
 	uint32_t index;
 	uint32_t path;
+	uint32_t pipeline;
 	uint32_t texture;
 	uint32_t rect;
 	uint32_t transform;
@@ -46,6 +64,7 @@ constexpr R_Specification2d Renderer2dDefaultSpec = {
 	1048576,
 	1048576 * 6,
 	64,
+	64,
 	255,
 	255,
 	255,
@@ -60,8 +79,8 @@ struct R_Rect {
 	R_Rect(float min_x, float min_y, float max_x, float max_y): min(min_x, min_y), max(max_x, max_y) {}
 };
 
+struct R_Pipeline;
 struct R_Texture;
-struct R_Command_Buffer;
 
 struct R_Font_Glyph {
 	uint32_t codepoint;
@@ -88,28 +107,48 @@ struct R_Font_Config {
 struct R_Font_Global_Config {
 	uint32_t replacement   = '?';
 	int      padding       = 1;
-	float    oversample_h  = 2;
-	float    oversample_v  = 2;
+	float    oversample_h  = 1;
+	float    oversample_v  = 1;
 };
 
 constexpr uint32_t DefaultCodepointRange[]  = { 0x20, 0xFF };
 
-struct R_Backend2d;
 struct R_Renderer2d;
+
+struct R_Backend2d {
+	virtual R_Texture *CreateTexture(uint32_t w, uint32_t h, uint32_t n, const uint8_t *pixels) { return nullptr; }
+	virtual R_Texture *CreateTextureSRGBA(uint32_t w, uint32_t h, const uint8_t *pixels) { return nullptr; }
+	virtual void       DestroyTexture(R_Texture *texture) {}
+
+	virtual bool UploadVertexData(void* context, void *ptr, uint32_t size) { return false; }
+	virtual bool UploadIndexData(void *context, void *ptr, uint32_t size)  { return false; }
+	virtual void SetCameraTransform(void *context, const R_Camera2d &camera, const Mat4& transform) {}
+	virtual void SetPipeline(void *context, R_Pipeline *pipeline) {}
+	virtual void SetScissor(void *context, R_Rect rect) {}
+	virtual void SetTexture(void *context, R_Texture *texture) {}
+	virtual void DrawTriangleList(void *context, uint32_t index_count, uint32_t index_offset, uint32_t vertex_offset) {}
+
+	virtual void Release() {}
+};
 
 R_Renderer2d *R_CreateRenderer2d(R_Backend2d *backend, const R_Specification2d &spec = Renderer2dDefaultSpec);
 void          R_DestroyRenderer2d(R_Renderer2d *r2);
 
-R_Texture *   R_CreateTexture2d(R_Renderer2d *r2, uint32_t w, uint32_t h, const uint8_t *pixels);
-void          R_DestroyTexture2d(R_Renderer2d *r2, R_Texture *texture);
-R_Font *      R_CreateFont2d(R_Renderer2d *r2, Array_View<R_Font_Config> configs, float height_in_pixels, const R_Font_Global_Config &global_config = {}, M_Arena *tmp_arena = ThreadScratchpad());
-R_Font *      R_CreateFont2d(R_Renderer2d *r2, String font_data, float height, Array_View<uint32_t> ranges = DefaultCodepointRange, uint32_t index = 0, const R_Font_Global_Config &global_config = {}, M_Arena *tmp_arena = ThreadScratchpad());
-void          R_DestroyFont2d(R_Renderer2d *r2, R_Font *font);
+R_Texture *   R_Backend_CreateTexture(R_Renderer2d *r2, uint32_t w, uint32_t h, uint32_t n, const uint8_t *pixels);
+R_Texture *   R_Backend_CreateTextureSRGBA(R_Renderer2d *r2, uint32_t w, uint32_t h, const uint8_t *pixels);
+void          R_Backend_DestroyTexture(R_Renderer2d *r2, R_Texture *texture);
+
+R_Font *      R_CreateFont(R_Renderer2d *r2, Array_View<R_Font_Config> configs, float height_in_pixels, const R_Font_Global_Config &global_config = {}, M_Arena *tmp_arena = ThreadScratchpad());
+R_Font *      R_CreateFont(R_Renderer2d *r2, String font_data, float height, Array_View<uint32_t> ranges = DefaultCodepointRange, uint32_t index = 0, const R_Font_Global_Config &global_config = {}, M_Arena *tmp_arena = ThreadScratchpad());
+void          R_DestroyFont(R_Renderer2d *r2, R_Font *font);
 R_Font_Glyph *R_FontFindGlyph(R_Font *font, uint32_t codepoint);
 
 R_Texture *   R_DefaultTexture(R_Renderer2d *r2);
 R_Font *      R_DefaultFont(R_Renderer2d *r2);
 
+R_Backend2d * R_GetBackend(R_Renderer2d *r2);
+R_Backend2d * R_SwapBackend(R_Renderer2d *r2, R_Backend2d *new_backend);
+void          R_SetBackend(R_Renderer2d *r2, R_Backend2d *backend);
 R_Memory2d    R_GetMemoryInformation(R_Renderer2d *r2);
 
 //
@@ -117,7 +156,7 @@ R_Memory2d    R_GetMemoryInformation(R_Renderer2d *r2);
 //
 
 void R_NextFrame(R_Renderer2d *r2, R_Rect region = R_Rect(0.0f, 0.0f, 1.0f, 1.0f));
-void R_FinishFrame(R_Renderer2d *r2, R_Command_Buffer *command_buffer);
+void R_FinishFrame(R_Renderer2d *r2, void *context);
 void R_NextDrawCommand(R_Renderer2d *r2);
 
 void R_CameraView(R_Renderer2d *r2, float left, float right, float bottom, float top, float _near, float _far);
@@ -125,6 +164,11 @@ void R_CameraView(R_Renderer2d *r2, float aspect_ratio, float height);
 void R_CameraDimension(R_Renderer2d *r2, float width, float height);
 
 void R_SetLineThickness(R_Renderer2d *r2, float thickness);
+
+void R_SetPipeline(R_Renderer2d *r2, R_Pipeline *pipeline);
+void R_PushPipeline(R_Renderer2d *r2, R_Pipeline *pipeline);
+void R_PopPipeline(R_Renderer2d *r2);
+
 void R_SetTexture(R_Renderer2d *r2, R_Texture *texture);
 void R_PushTexture(R_Renderer2d *r2, R_Texture *texture);
 void R_PopTexture(R_Renderer2d *r2);

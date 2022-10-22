@@ -4,8 +4,8 @@
 struct PL_Window;
 
 struct R_Device;
-struct R_Command_Queue;
-struct R_Command_Buffer;
+struct R_Queue;
+struct R_List;
 struct R_Swap_Chain;
 struct R_Pipeline;
 struct R_Texture;
@@ -17,8 +17,7 @@ enum R_Device_Flags {
 };
 
 enum R_Texture_Flags {
-	R_TEXTURE_SRGB = 0x1,
-	R_TEXTURE_GEN_MIPMAPS = 0x2
+	R_TEXTURE_GEN_MIPMAPS = 0x1
 };
 
 enum R_Buffer_Usage {
@@ -42,33 +41,17 @@ enum R_Shader {
 
 enum R_Format {
 	R_FORMAT_RGBA32_FLOAT,
-	R_FORMAT_RGBA32_UINT,
-	R_FORMAT_RGBA32_SINT,
-	R_FORMAT_RGB32_FLOAT,
-	R_FORMAT_RGB32_UINT,
-	R_FORMAT_RGB32_SINT,
 	R_FORMAT_RGBA16_FLOAT,
-	R_FORMAT_RGBA16_UINT,
-	R_FORMAT_RGBA16_SINT,
-	R_FORMAT_RG32_FLOAT,
-	R_FORMAT_RG32_UINT,
-	R_FORMAT_RG32_SINT,
 	R_FORMAT_RGBA8_UNORM,
 	R_FORMAT_RGBA8_UNORM_SRGB,
-	R_FORMAT_RGBA8_UINT,
-	R_FORMAT_RGBA8_SNORM,
-	R_FORMAT_RGBA8_SINT,
-	R_FORMAT_RG16_UNORM,
-	R_FORMAT_RG16_UINT,
-	R_FORMAT_RG16_SNORM,
-	R_FORMAT_RG16_SINT,
+	R_FORMAT_RGB32_FLOAT,
+	R_FORMAT_RG32_FLOAT,
+	R_FORMAT_RG8_UNORM,
 	R_FORMAT_R32_FLOAT,
 	R_FORMAT_R32_UINT,
-	R_FORMAT_R32_SINT,
-	R_FORMAT_RG8_UNORM,
-	R_FORMAT_RG8_UINT,
-	R_FORMAT_RG8_SNORM,
-	R_FORMAT_RG8_SINT,
+	R_FORMAT_R16_UINT,
+	R_FORMAT_R8_UNORM,
+
 	_R_FORMAT_COUNT
 };
 
@@ -88,10 +71,7 @@ struct R_Input_Layout_Element {
 	uint32_t                instance_data_step_rate;
 };
 
-struct R_Input_Layout {
-	R_Input_Layout_Element data[15];
-	uint32_t               count;
-};
+typedef Array_View<R_Input_Layout_Element> R_Input_Layout;
 
 enum R_Blend_Type {
 	R_BLEND_ZERO,
@@ -290,11 +270,11 @@ struct R_Sampler {
 
 struct R_Pipeline_Config {
 	Array_View<uint8_t> shaders[R_SHADER_COUNT];
-	R_Input_Layout      input_layout;
-	R_Blend             blend;
-	R_Depth_Stencil     depth_stencil;
-	R_Rasterizer        rasterizer;
-	R_Sampler           sampler;
+	R_Input_Layout      *input_layout;
+	R_Blend             *blend;
+	R_Depth_Stencil     *depth_stencil;
+	R_Rasterizer        *rasterizer;
+	R_Sampler           *sampler;
 };
 
 enum R_Primitive_Topology {
@@ -321,22 +301,24 @@ struct R_Scissor {
 R_Device *        R_CreateDevice(uint32_t device_flags);
 void              R_DestroyDevice(R_Device *device);
 
-R_Command_Queue * R_CreateCommandQueue(R_Device *device);
-void              R_DestroyCommandQueue(R_Command_Queue *queue);
-void              R_Submit(R_Command_Queue *queue, R_Command_Buffer *buffer);
+R_Queue *         R_CreateRenderQueue(R_Device *device);
+void              R_DestroyRenderQueue(R_Queue *queue);
+void              R_Submit(R_Queue *queue, R_List *list);
+void              R_Flush(R_Queue *queue);
 
-R_Command_Buffer *R_CreateCommandBuffer(R_Device *device);
-void              R_DestroyCommandBuffer(R_Command_Buffer *buffer);
+R_List *          R_CreateRenderList(R_Device *device);
+void              R_DestroyRenderList(R_List *list);
 
 R_Swap_Chain *    R_CreateSwapChain(R_Device *device, PL_Window *window);
 void              R_DestroySwapChain(R_Device *device, R_Swap_Chain *swap_chain);
 
 void              R_SetSyncInterval(R_Swap_Chain *swap_chain, uint32_t interval);
-R_Render_Target * R_GetSwapChainRenderTarget(R_Swap_Chain *swap_chain);
-void              R_GetSwapChainRenderTargetSize(R_Swap_Chain *swap_chain, uint32_t *w, uint32_t *h);
+void              R_ResizeRenderTargets(R_Device *device, R_Swap_Chain *swap_chain, uint32_t w, uint32_t h);
+R_Render_Target * R_GetRenderTarget(R_Swap_Chain *swap_chain);
+void              R_GetRenderTargetSize(R_Swap_Chain *swap_chain, float *w, float *h);
 void              R_Present(R_Swap_Chain *swap_chain);
 
-void              R_GetRenderTargetSize(R_Render_Target *render_target, uint32_t *w, uint32_t *h);
+void              R_RenderTargetSize(R_Render_Target *render_target, float *w, float *h);
 
 R_Pipeline *      R_CreatePipeline(R_Device *device, const R_Pipeline_Config &config);
 void              R_DestroyPipeline(R_Pipeline *pipeline);
@@ -346,21 +328,21 @@ R_Buffer *        R_CreateIndexBuffer(R_Device *device, R_Buffer_Usage usage, ui
 R_Buffer *        R_CreateConstantBuffer(R_Device *device, R_Buffer_Usage usage, uint32_t flags, uint32_t size, void *data);
 void              R_DestroyBuffer(R_Buffer *buffer);
 
-R_Texture *       R_CreateTextureRGBA(R_Device *device, uint32_t width, uint32_t height, uint8_t *pixels, uint32_t flags);
+R_Texture *       R_CreateTexture(R_Device *device, R_Format format, uint32_t width, uint32_t height, const uint8_t *pixels, uint32_t flags);
 void              R_DestroyTexture(R_Texture *texture);
 
-void *            R_MapBuffer(R_Command_Buffer *command_buffer, R_Buffer *buffer);
-void              R_UnmapBuffer(R_Command_Buffer *command_buffer, R_Buffer *buffer);
+void *            R_MapBuffer(R_List *list, R_Buffer *buffer);
+void              R_UnmapBuffer(R_List *list, R_Buffer *buffer);
 
-void              R_ClearRenderTarget(R_Command_Buffer *buffer, R_Render_Target *render_target, const float color[4]);
-void              R_SetPipeline(R_Command_Buffer *buffer, R_Pipeline *pipeline);
-void              R_SetVertexBuffers(R_Command_Buffer *command_buffer, R_Buffer **buffer, uint32_t *stride, uint32_t *offset, uint32_t location, uint32_t count);
-void              R_SetIndexBuffer(R_Command_Buffer *command_buffer, R_Buffer *buffer, R_Format format, uint32_t offset);
-void              R_SetPrimitiveTopology(R_Command_Buffer *buffer, R_Primitive_Topology topology);
-void              R_SetConstantBuffers(R_Command_Buffer *command_buffer, R_Shader shader, R_Buffer **buffer, uint32_t location, uint32_t count);
-void              R_SetTextures(R_Command_Buffer *buffer, R_Texture **texture, uint32_t location, uint32_t count);
-void              R_SetRenderTargets(R_Command_Buffer *buffer, uint32_t count, R_Render_Target *render_targets[], R_Depth_Stencil *depth_stencil);
-void              R_SetViewports(R_Command_Buffer *buffer, R_Viewport *viewports, uint32_t count);
-void              R_SetScissors(R_Command_Buffer *buffer, R_Scissor *scissors, uint32_t count);
-void              R_Draw(R_Command_Buffer *buffer, uint32_t vertex_count, uint32_t start_vertex_location);
-void              R_DrawIndexed(R_Command_Buffer *buffer, uint32_t index_count, uint32_t start_index_location, uint32_t base_vertex_location);
+void              R_ClearRenderTarget(R_List *list, R_Render_Target *render_target, const float color[4]);
+void              R_SetPipeline(R_List *list, R_Pipeline *pipeline);
+void              R_SetVertexBuffers(R_List *list, R_Buffer **buffer, uint32_t *stride, uint32_t *offset, uint32_t location, uint32_t count);
+void              R_SetIndexBuffer(R_List *list, R_Buffer *buffer, R_Format format, uint32_t offset);
+void              R_SetPrimitiveTopology(R_List *list, R_Primitive_Topology topology);
+void              R_SetConstantBuffers(R_List *list, R_Shader shader, R_Buffer **buffer, uint32_t location, uint32_t count);
+void              R_SetTextures(R_List *list, R_Texture **texture, uint32_t location, uint32_t count);
+void              R_SetRenderTargets(R_List *list, uint32_t count, R_Render_Target *render_targets[], R_Depth_Stencil *depth_stencil);
+void              R_SetViewports(R_List *list, R_Viewport *viewports, uint32_t count);
+void              R_SetScissors(R_List *list, R_Scissor *scissors, uint32_t count);
+void              R_Draw(R_List *list, uint32_t vertex_count, uint32_t start_vertex_location);
+void              R_DrawIndexed(R_List *list, uint32_t index_count, uint32_t start_index_location, uint32_t base_vertex_location);
