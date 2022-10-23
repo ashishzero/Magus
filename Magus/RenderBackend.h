@@ -345,4 +345,4 @@ void              R_SetRenderTargets(R_List *list, uint32_t count, R_Render_Targ
 void              R_SetViewports(R_List *list, R_Viewport *viewports, uint32_t count);
 void              R_SetScissors(R_List *list, R_Scissor *scissors, uint32_t count);
 void              R_Draw(R_List *list, uint32_t vertex_count, uint32_t start_vertex_location);
-void              R_DrawIndexed(R_List *list, uint32_t index_count, uint32_t start_index_location, uint32_t base_vertex_location);
+void              R_DrawIndexed(R_List *list, uint32_t index_count, uint32_t start_index_location, int32_t base_vertex_location);

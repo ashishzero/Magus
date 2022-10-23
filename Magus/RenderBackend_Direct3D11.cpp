@@ -1025,7 +1025,7 @@ R_RENDER_API void R_Draw(R_List *list, uint32_t vertex_count, uint32_t start_ver
 	deferred_context->Draw(vertex_count, start_vertex_location);
 }
 
-R_RENDER_API void R_DrawIndexed(R_List *list, uint32_t index_count, uint32_t start_index_location, uint32_t base_vertex_location) {
+R_RENDER_API void R_DrawIndexed(R_List *list, uint32_t index_count, uint32_t start_index_location, int32_t base_vertex_location) {
 	ID3D11DeviceContext1 *deferred_context = (ID3D11DeviceContext1 *)list;
 	deferred_context->DrawIndexed(index_count, start_index_location, (INT)base_vertex_location);
 }
