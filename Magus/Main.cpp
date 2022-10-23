@@ -159,31 +159,6 @@ R_Font *Font_Create(const R_Font_Config &config, float height_in_pixels) {
 
 	texture_height = Min(NextPowerOf2(texture_height + 1), MAX_TEXTURE_DIM);
 
-	uint8_t *gray_pixels = nullptr;
-	uint8_t *rgba_pixels = nullptr;
-
-	if (config.texture == R_FONT_TEXTURE_GRAYSCALE || config.texture == R_FONT_TEXTURE_SIGNED_DISTANCE_FIELD) {
-		gray_pixels = (uint8_t *)MemAlloc(sizeof(uint8_t) * texture_width * texture_height);
-	} else {
-		gray_pixels = M_PushArray(arena, uint8_t, texture_width * texture_height);
-		rgba_pixels = (uint8_t *)MemAlloc(sizeof(uint8_t) * texture_width * texture_height * 4);
-
-		if (!rgba_pixels) {
-			LogErrorEx("Font", "Failed to allocate RGBA pixels");
-			return nullptr;
-		}
-	}
-
-	if (!gray_pixels) {
-		LogErrorEx("Font", "Failed to allocate gray pixels");
-		return nullptr;
-	}
-
-	memset(gray_pixels, 0, texture_width * texture_height);
-
-	if (rgba_pixels)
-		memset(rgba_pixels, 0, texture_width * texture_height * 4);
-
 	//
 	//
 	//
@@ -206,15 +181,44 @@ R_Font *Font_Create(const R_Font_Config &config, float height_in_pixels) {
 	uint8_t *mem = (uint8_t *)MemAlloc(allocation_size);
 	if (!mem) {
 		LogErrorEx("Font", "Failed to allocate font");
-
-		if (rgba_pixels) {
-			MemFree(rgba_pixels, texture_width * texture_height * 4);
-		} else {
-			MemFree(gray_pixels, texture_width * texture_height);
-		}
-
 		return nullptr;
 	}
+
+	uint8_t *gray_pixels = nullptr;
+	uint8_t *rgba_pixels = nullptr;
+
+	bool persistent_gray = (config.texture == R_FONT_TEXTURE_GRAYSCALE || config.texture == R_FONT_TEXTURE_SIGNED_DISTANCE_FIELD);
+
+	if (persistent_gray) {
+		gray_pixels = (uint8_t *)MemAlloc(texture_width * texture_height);
+	} else {
+		gray_pixels = M_PushArray(arena, uint8_t, texture_width * texture_height);
+		rgba_pixels = (uint8_t *)MemAlloc(texture_width * texture_height * 4);
+
+		if (!rgba_pixels) {
+			LogErrorEx("Font", "Failed to allocate RGBA pixels");
+			MemFree(mem, allocation_size);
+			return nullptr;
+		}
+	}
+
+	if (!gray_pixels) {
+		LogErrorEx("Font", "Failed to allocate gray pixels");
+		MemFree(mem, allocation_size);
+		if (!persistent_gray) {
+			MemFree(rgba_pixels, texture_width * texture_height * 4);
+		}
+		return nullptr;
+	}
+
+	memset(gray_pixels, 0, texture_width * texture_height);
+
+	if (rgba_pixels)
+		memset(rgba_pixels, 0, texture_width * texture_height * 4);
+
+	//
+	//
+	//
 
 	R_Font *font = (R_Font *)mem;
 	mem += sizeof(R_Font);
