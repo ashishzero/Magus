@@ -829,7 +829,7 @@ R_RENDER_API void R_DestroyBuffer(R_Buffer *buffer) {
 	d3d11buffer->Release();
 }
 
-R_RENDER_API R_Texture *R_CreateTexture(R_Device *device, R_Format format, uint32_t width, uint32_t height, const uint8_t *pixels, uint32_t flags) {
+R_RENDER_API R_Texture *R_CreateTexture(R_Device *device, R_Format format, uint32_t width, uint32_t height, uint32_t pitch, const uint8_t *pixels, uint32_t flags) {
 	ID3D11Device1 *device1 = (ID3D11Device1 *)device;
 
 	bool mipmaps = (flags & R_TEXTURE_GEN_MIPMAPS);
@@ -849,7 +849,7 @@ R_RENDER_API R_Texture *R_CreateTexture(R_Device *device, R_Format format, uint3
 
 	D3D11_SUBRESOURCE_DATA texture_data;
 	texture_data.pSysMem          = pixels;
-	texture_data.SysMemPitch      = width * 4;
+	texture_data.SysMemPitch      = pitch;
 	texture_data.SysMemSlicePitch = 0;
 
 	ID3D11Texture2D *texture2d = nullptr;

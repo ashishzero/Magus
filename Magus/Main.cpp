@@ -35,7 +35,7 @@ struct R_Font_Internal {
 void Font_FreePixels(R_Font *font) {
 	R_Font_Internal *_internal = (R_Font_Internal *)font->_internal;
 	if (_internal->pixels) {
-		uint32_t count = (_internal->kind == R_FONT_TEXTURE_RBGA_COLOR || _internal->kind == R_FONT_TEXTURE_RGBA) ? 4 : 1;
+		uint32_t count = (_internal->kind == R_FONT_TEXTURE_RGBA_COLOR || _internal->kind == R_FONT_TEXTURE_RGBA) ? 4 : 1;
 		uint32_t allocated = _internal->width * _internal->height * count;
 
 		M_Free(_internal->pixels, allocated, _internal->allocator);
@@ -264,7 +264,7 @@ R_Font *Font_Create(const R_Font_Config &config, float height_in_pixels) {
 
 		R_Rect uv;
 		uv.min = Vec2((float)rect->x / (float)texture_width, (float)rect->y / (float)texture_height);
-		uv.max = Vec2((float)(rect->x + rect->w) / (float)texture_width, (float)(rect->y + rect->h) / (float)texture_height);
+		uv.max = Vec2((float)(rect->x + rect->w - 1) / (float)texture_width, (float)(rect->y + rect->h - 1) / (float)texture_height);
 
 		font->index[rect->cp] = index;
 
@@ -303,13 +303,15 @@ R_Font *Font_Create(const R_Font_Config &config, float height_in_pixels) {
 		font->replacement->uv = uv;
 	}
 
-	uint8_t *dst_pixel = rgba_pixels;
-	uint8_t *src_pixel = gray_pixels;
-	for (int i = 0; i < texture_width * texture_height; ++i) {
-		dst_pixel[0] = dst_pixel[1] = dst_pixel[2] = 0xff;
-		dst_pixel[3] = *src_pixel;
-		dst_pixel += 4;
-		src_pixel += 1;
+	if (rgba_pixels) {
+		uint8_t *dst_pixel = rgba_pixels;
+		uint8_t *src_pixel = gray_pixels;
+		for (int i = 0; i < texture_width * texture_height; ++i) {
+			dst_pixel[0] = dst_pixel[1] = dst_pixel[2] = 0xff;
+			dst_pixel[3] = *src_pixel;
+			dst_pixel += 4;
+			src_pixel += 1;
+		}
 	}
 
 	return font;
@@ -332,11 +334,11 @@ static R_Texture *R_Backend2d_CreateTexture(R_Device *device, uint32_t w, uint32
 	else if (n == 4) format = R_FORMAT_RGBA8_UNORM;
 	else Unreachable();
 
-	return R_CreateTexture(device, format, w, h, pixels, 0);
+	return R_CreateTexture(device, format, w, h, w * n, pixels, 0);
 }
 
 static R_Texture *R_Backend2d_CreateTextureSRGBA(R_Device *device, uint32_t w, uint32_t h, const uint8_t *pixels) {
-	return R_CreateTexture(device, R_FORMAT_RGBA8_UNORM_SRGB, w, h, pixels, 0);
+	return R_CreateTexture(device, R_FORMAT_RGBA8_UNORM_SRGB, w, h, w * 4, pixels, 0);
 }
 
 static void R_Backend2d_DestroyTexture(R_Texture *texture) {
@@ -348,10 +350,18 @@ static R_Font *R_Backend2d_CreateFont(R_Device *device, const R_Font_Config &con
 	if (font) {
 		R_Font_Internal *_internal = (R_Font_Internal *)font->_internal;
 
-		R_Format format =
-			(_internal->kind == R_FONT_TEXTURE_GRAYSCALE || _internal->kind == R_FONT_TEXTURE_SIGNED_DISTANCE_FIELD) ?
-			R_FORMAT_R8_UNORM : R_FORMAT_RGBA8_UNORM;
-		font->texture = R_CreateTexture(device, format, _internal->width, _internal->height, _internal->pixels, 0);
+		R_Format format;
+		uint32_t pitch;
+
+		if (_internal->kind == R_FONT_TEXTURE_GRAYSCALE || _internal->kind == R_FONT_TEXTURE_SIGNED_DISTANCE_FIELD) {
+			format = R_FORMAT_R8_UNORM;
+			pitch  = _internal->width;
+		} else {
+			format = R_FORMAT_RGBA8_UNORM;
+			pitch  = _internal->width * 4;
+		}
+
+		font->texture = R_CreateTexture(device, format, _internal->width, _internal->height, pitch, _internal->pixels, 0);
 		if (font->texture) {
 			_internal->release_texture = R_DestroyTexture;
 			Font_FreePixels(font);
@@ -635,8 +645,12 @@ int Main(int argc, char **argv) {
 
 		R_SetPipeline(renderer, pipeline);
 
-		R_DrawText(renderer, Vec2(10, height - 50), Vec4(1), u8"The cake is a lie.か");
+		R_DrawText(renderer, Vec2(10, height - 50), Vec4(1), u8"The cake is a lie.");
 		R_DrawRect(renderer, 0.5f * Vec2(width, height), Vec2(100), Vec4(1));
+
+		//R_Font *font = R_DefaultFont(renderer);
+		//R_Font_Internal *_internal = (R_Font_Internal *)font->_internal;
+		//R_DrawTexture(renderer, font->texture, Vec2(50), Vec2(_internal->width, _internal->height));
 
 		R_Viewport viewport;
 		viewport.y = viewport.x = 0;

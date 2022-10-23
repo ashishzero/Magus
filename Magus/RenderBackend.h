@@ -328,7 +328,7 @@ R_Buffer *        R_CreateIndexBuffer(R_Device *device, R_Buffer_Usage usage, ui
 R_Buffer *        R_CreateConstantBuffer(R_Device *device, R_Buffer_Usage usage, uint32_t flags, uint32_t size, void *data);
 void              R_DestroyBuffer(R_Buffer *buffer);
 
-R_Texture *       R_CreateTexture(R_Device *device, R_Format format, uint32_t width, uint32_t height, const uint8_t *pixels, uint32_t flags);
+R_Texture *       R_CreateTexture(R_Device *device, R_Format format, uint32_t width, uint32_t height, uint32_t pitch, const uint8_t *pixels, uint32_t flags);
 void              R_DestroyTexture(R_Texture *texture);
 
 void *            R_MapBuffer(R_List *list, R_Buffer *buffer);
