@@ -6,6 +6,8 @@
 
 #include "RenderBackend.h"
 
+#include <stdio.h>
+
 #define STBRP_ASSERT Assert
 #define STBRP_STATIC
 
@@ -597,14 +599,35 @@ R_Pipeline *CreateRender2dPipeline(R_Device *device) {
 	return R_CreatePipeline(device, config);
 }
 
-extern int watch_main(int argc, char **argv);
+
+void OnDirectoryNotification(void *context, String path, uint32_t actions, uint32_t attrs) {
+	uint32_t filter_attributes = PL_FILE_ATTRIBUTE_DIRECTORY | PL_FILE_ATTRIBUTE_TEMPORARY;
+	if (attrs & filter_attributes)
+		return;
+
+	char buffer[512];
+
+	int len = 0;
+
+	if (actions & PL_FILE_ACTION_ADDED) len += snprintf(buffer + len, sizeof(buffer) - len, "added ");
+	if (actions & PL_FILE_ACTION_MODIFIED) len += snprintf(buffer + len, sizeof(buffer) - len, "modified ");
+	if (actions & PL_FILE_ACTION_REMOVED) len += snprintf(buffer + len, sizeof(buffer) - len, "removed ");
+	if (actions & PL_FILE_ACTION_RENAMED_OLD) len += snprintf(buffer + len, sizeof(buffer) - len, "renamed(old) ");
+	if (actions & PL_FILE_ACTION_RENAMED_NEW) len += snprintf(buffer + len, sizeof(buffer) - len, "renamed(new) ");
+
+	Trace("notified: %s" StrFmt "\n", buffer, StrArg(path));
+}
 
 int Main(int argc, char **argv) {
 	PL_Init();
 
-	watch_main(argc, argv);
-
 	PL_ThreadCharacteristics(PL_THREAD_GAMES);
+
+	PL_Watch_Directory directories[] = {
+		{ "Magus/Shaders", PL_WATCH_DIRECTORY_RECURSIVE, OnDirectoryNotification },
+	};
+
+	PL_WatchDirectory(directories);
 	
 	PL_Window *window = PL_CreateWindow("Magus", 0, 0, false);
 	if (!window)
@@ -620,16 +643,7 @@ int Main(int argc, char **argv) {
 
 	R_Backend2d_Impl backend = CreateRenderer2dBackend(rdevice);
 
-	R_Font_File files[] = { Renderer2dEmbeddedFont, 0, Renderer2dDefaultCodepointRange };
-	R_Font_Config config;
-	config.files = files;
-	config.replacement = 0xfffd;
-	config.texture = R_FONT_TEXTURE_RGBA;
-
-	R_Specification2d spec = Renderer2dDefaultSpec;
-	spec.font.config = &config;
-
-	R_Renderer2d *renderer = R_CreateRenderer2d(&backend, spec);
+	R_Renderer2d *renderer = R_CreateRenderer2d(&backend);
 
 	R_Pipeline *pipeline = CreateRender2dPipeline(rdevice);
 
@@ -662,11 +676,7 @@ int Main(int argc, char **argv) {
 		R_SetPipeline(renderer, pipeline);
 
 		R_DrawText(renderer, Vec2(0, 10), Vec4(1), u8"A-あ", 5.0f);
-		//R_DrawRect(renderer, 0.5f * Vec2(width, height), Vec2(100), Vec4(1));
-
-		R_Font *font = R_DefaultFont(renderer);
-		R_Font_Internal *_internal = (R_Font_Internal *)font->_internal;
-		R_DrawTexture(renderer, font->texture, Vec2(500, 10), Vec2(_internal->width, _internal->height), Vec4(1, 1, 0, 1));
+		R_DrawRect(renderer, 0.5f * Vec2(width, height), Vec2(100), Vec4(1));
 
 		R_Viewport viewport;
 		viewport.y = viewport.x = 0;

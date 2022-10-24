@@ -92,7 +92,6 @@
     <ClCompile Include="Magus\Kr\KrString.cpp" />
     <ClCompile Include="Magus\Main.cpp" />
     <ClCompile Include="Magus\Kr\KrRender2d.cpp" />
-    <ClCompile Include="Magus\Watch.cpp" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="Magus\RenderBackend.h" />

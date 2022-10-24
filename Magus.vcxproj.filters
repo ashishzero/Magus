@@ -39,9 +39,6 @@
     <ClCompile Include="Magus\RenderBackend_Direct3D11.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
-    <ClCompile Include="Magus\Watch.cpp">
-      <Filter>Source Files</Filter>
-    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="Magus\Kr\KrHashTable.h">
