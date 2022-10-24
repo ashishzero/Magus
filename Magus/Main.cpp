@@ -6,6 +6,7 @@
 #include "Kr/KrString.h"
 
 #include "RenderBackend.h"
+#include "ResourceManager.h"
 
 #include <stdio.h>
 
@@ -555,51 +556,6 @@ R_Backend2d_Impl CreateRenderer2dBackend(R_Device *device) {
 	return backend;
 }
 
-R_Pipeline *CreateRender2dPipeline(R_Device *device) {
-	R_Input_Layout_Element elements[] = {
-		{ "POSITION", 0, R_FORMAT_RGB32_FLOAT, 0, offsetof(R_Vertex2d, position), R_INPUT_CLASSIFICATION_PER_VERTEX, 0},
-		{ "TEXCOORD", 0, R_FORMAT_RG32_FLOAT, 0, offsetof(R_Vertex2d, tex_coord), R_INPUT_CLASSIFICATION_PER_VERTEX, 0 },
-		{ "COLOR", 0, R_FORMAT_RGBA32_FLOAT, 0, offsetof(R_Vertex2d, color), R_INPUT_CLASSIFICATION_PER_VERTEX, 0 }
-	};
-
-	R_Input_Layout input_layout = elements;
-
-	R_Blend blend                     = {};
-	blend.render_target[0].enable     = true;
-	blend.render_target[0].color      = { R_BLEND_SRC_ALPHA, R_BLEND_INV_SRC_ALPHA, R_BLEND_OP_ADD };
-	blend.render_target[0].alpha      = { R_BLEND_SRC_ALPHA, R_BLEND_INV_SRC_ALPHA, R_BLEND_OP_ADD };
-	blend.render_target[0].write_mask = R_WRITE_MASK_ALL;
-
-	R_Depth_Stencil depth_stencil  = {};
-	depth_stencil.depth.enable     = true;
-	depth_stencil.depth.comparison = R_COMPARISON_LESS_EQUAL;
-	depth_stencil.depth.write_mask = R_DEPTH_WRITE_MASK_ALL;
-
-	R_Rasterizer rasterizer    = {};
-	rasterizer.fill_mode       = R_FILL_SOLID;
-	rasterizer.cull_mode       = R_CULL_NONE;
-	rasterizer.front_clockwise = true;
-	rasterizer.scissor_enable  = true;
-
-	R_Sampler sampler = {};
-	sampler.filter    = R_FILTER_MIN_MAG_MIP_LINEAR;
-	sampler.filter    = R_FILTER_MIN_MAG_MIP_POINT;
-	sampler.address_u = R_TEXTURE_ADDRESS_WRAP;
-	sampler.address_v = R_TEXTURE_ADDRESS_WRAP;
-	sampler.address_w = R_TEXTURE_ADDRESS_WRAP;
-
-	R_Pipeline_Config config        = {};
-	config.shaders[R_SHADER_VERTEX] = PL_ReadEntireFile("Resources/Shaders/HLSL/QuadVertex.cso");
-	config.shaders[R_SHADER_PIXEL]  = PL_ReadEntireFile("Resources/Shaders/HLSL/QuadPixel.cso");
-	config.input_layout             = &input_layout;
-	config.blend                    = &blend;
-	config.depth_stencil            = &depth_stencil;
-	config.rasterizer               = &rasterizer;
-	config.sampler                  = &sampler;
-
-	return R_CreatePipeline(device, config);
-}
-
 static bool FilterModifiedFile(uint32_t actions, uint32_t attrs) {
 	return ((actions & PL_FILE_ACTION_MODIFIED) && (actions & ~PL_FILE_ACTION_REMOVED) && (attrs & ~PL_FILE_ATTRIBUTE_DIRECTORY));
 }
@@ -662,7 +618,10 @@ int Main(int argc, char **argv) {
 
 	R_Renderer2d *renderer = R_CreateRenderer2d(&backend);
 
-	R_Pipeline *pipeline = CreateRender2dPipeline(rdevice);
+	String path    = "Resources/Shaders/HLSL/Quad.shader";
+	String content = PL_ReadEntireFile(path);
+
+	R_Pipeline *pipeline = Resource_LoadPipeline(ThreadScratchpad(), rdevice, content, path);
 
 	bool running = true;
 
