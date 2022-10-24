@@ -3,6 +3,7 @@
 #include "Kr/KrMath.h"
 #include "Kr/KrArray.h"
 #include "Kr/KrRender2d.h"
+#include "Kr/KrString.h"
 
 #include "RenderBackend.h"
 
@@ -599,23 +600,39 @@ R_Pipeline *CreateRender2dPipeline(R_Device *device) {
 	return R_CreatePipeline(device, config);
 }
 
+static bool FilterModifiedFile(uint32_t actions, uint32_t attrs) {
+	return ((actions & PL_FILE_ACTION_MODIFIED) && (actions & ~PL_FILE_ACTION_REMOVED) && (attrs & ~PL_FILE_ATTRIBUTE_DIRECTORY));
+}
+
+static String FileExtension(const String filepath) {
+	ptrdiff_t pos = InvFindChar(filepath, '.', filepath.length);
+	if (pos >= 0) {
+		return SubString(filepath, pos + 1);
+	}
+	return String("");
+}
 
 void OnDirectoryNotification(void *context, String path, uint32_t actions, uint32_t attrs) {
-	uint32_t filter_attributes = PL_FILE_ATTRIBUTE_DIRECTORY | PL_FILE_ATTRIBUTE_TEMPORARY;
-	if (attrs & filter_attributes)
-		return;
+	if (FilterModifiedFile(actions, attrs)) {
 
-	char buffer[512];
+		String extension = FileExtension(path);
 
-	int len = 0;
+		if (extension != "hlsl") return;
 
-	if (actions & PL_FILE_ACTION_ADDED) len += snprintf(buffer + len, sizeof(buffer) - len, "added ");
-	if (actions & PL_FILE_ACTION_MODIFIED) len += snprintf(buffer + len, sizeof(buffer) - len, "modified ");
-	if (actions & PL_FILE_ACTION_REMOVED) len += snprintf(buffer + len, sizeof(buffer) - len, "removed ");
-	if (actions & PL_FILE_ACTION_RENAMED_OLD) len += snprintf(buffer + len, sizeof(buffer) - len, "renamed(old) ");
-	if (actions & PL_FILE_ACTION_RENAMED_NEW) len += snprintf(buffer + len, sizeof(buffer) - len, "renamed(new) ");
+		char buffer[512];
 
-	Trace("notified: %s" StrFmt "\n", buffer, StrArg(path));
+		int len = 0;
+
+		if (actions & PL_FILE_ACTION_ADDED) len += snprintf(buffer + len, sizeof(buffer) - len, "added ");
+		if (actions & PL_FILE_ACTION_MODIFIED) len += snprintf(buffer + len, sizeof(buffer) - len, "modified ");
+		if (actions & PL_FILE_ACTION_REMOVED) len += snprintf(buffer + len, sizeof(buffer) - len, "removed ");
+		if (actions & PL_FILE_ACTION_RENAMED_OLD) len += snprintf(buffer + len, sizeof(buffer) - len, "renamed(old) ");
+		if (actions & PL_FILE_ACTION_RENAMED_NEW) len += snprintf(buffer + len, sizeof(buffer) - len, "renamed(new) ");
+
+		len += snprintf(buffer + len, sizeof(buffer) - len, "attrs: %x ", attrs);
+
+		Trace("notified: %s" StrFmt "\n", buffer, StrArg(path));
+	}
 }
 
 int Main(int argc, char **argv) {
