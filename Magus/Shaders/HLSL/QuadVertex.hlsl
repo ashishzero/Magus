@@ -1,7 +1,7 @@
 #include "QuadLayout.hlsli"
 
 cbuffer constants : register(b0) {
-	float4x4 Transform;
+	row_major float4x4 Transform;
 }
 
 Vertex_Output main(Vertex_Input vertex) {
