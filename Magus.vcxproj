@@ -111,6 +111,7 @@
     <ClInclude Include="Magus\Kr\KrRender2d.h" />
     <ClInclude Include="Magus\Kr\KrRobotoMedium.h" />
     <ClInclude Include="Magus\ResourceManager.h" />
+    <ClInclude Include="Magus\stb_image.h" />
     <ClInclude Include="Magus\stb_rect_pack.h" />
     <ClInclude Include="Magus\stb_truetype.h" />
   </ItemGroup>

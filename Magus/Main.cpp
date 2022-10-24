@@ -24,6 +24,13 @@
 #define STB_TRUETYPE_IMPLEMENTATION
 #include "stb_truetype.h"
 
+#define STBI_ASSERT(x) Assert(x)
+#define STBI_MALLOC(sz)           MemAlloc(sz)
+#define STBI_REALLOC(p,newsz)     MemRealloc(p,0,newsz)
+#define STBI_FREE(p)              MemFree(p,0)
+#define STB_IMAGE_IMPLEMENTATION
+#include "stb_image.h"
+
 struct R_Font_Internal {
 	void (*release_texture)(R_Texture *texture);
 
@@ -537,6 +544,7 @@ struct R_Backend2d_Impl : R_Backend2d {
 	}
 
 	virtual void SetTexture(void *context, R_Texture *texture) override {
+		Assert(texture);
 		R_Backend2d_SetTexture((R_List *)context, texture);
 	}
 
@@ -554,6 +562,20 @@ R_Backend2d_Impl CreateRenderer2dBackend(R_Device *device) {
 	backend.device = device;
 	memset(&backend.data, 0, sizeof(backend.data));
 	return backend;
+}
+
+R_Texture *Resource_LoadTexture(M_Arena *arena, R_Device *device, const String content, const String path) {
+	int x, y, n;
+	uint8_t *pixels = stbi_load_from_memory(content.data, (int)content.length, &x, &y, &n, 4);
+	if (pixels) {
+		R_Texture *texture = R_CreateTexture(device, R_FORMAT_RGBA8_UNORM, x, y, x * 4, pixels, 0);
+		stbi_image_free(pixels);
+		return texture;
+	}
+
+	LogErrorEx("Resource Texture", "Failed to load texture: " StrFmt ". Reason: %s", StrArg(path), stbi_failure_reason());
+
+	return nullptr;
 }
 
 static bool FilterModifiedFile(uint32_t actions, uint32_t attrs) {
@@ -574,39 +596,72 @@ struct Resource_Manager {
 	Array<R_Pipeline *> pipeline_pool;
 	Array<R_Pipeline *> pipeline_freed;
 
+	Array<R_Texture *>  texture_pool;
+	Array<R_Texture *>  texture_freed;
+
 	std::mutex          mutex; // todo: remove mutex
 };
 
 static Resource_Manager ResourceManager;
 
+static volatile bool HotReloading = false;
+
 void OnDirectoryNotification(void *context, String path, uint32_t actions, uint32_t attrs) {
 	R_Device *device = (R_Device *)context;
 
 	if (FilterModifiedFile(actions, attrs)) {
+		M_Arena *arena = ThreadScratchpad();
+		M_Temporary temp = M_BeginTemporaryMemory(arena);
+		Defer{ M_EndTemporaryMemory(&temp); };
 
 		String extension = FileExtension(path);
 
-		if (extension != "shader") return;
+		if (extension == "shader") {
+			HotReloading = true;
+			Defer{ HotReloading = false; };
 
-		// for now we don't care, we only have single shader
+			Trace("shader reloading...");
 
-		M_Arena *arena = ThreadScratchpad();
-		M_Temporary temp = M_BeginTemporaryMemory(arena);
-		String content = PL_ReadEntireFile(path); // use temp memory here!!
-		R_Pipeline *pipeline = Resource_LoadPipeline(arena, device, content, path);
-		MemFree(content.data, content.length);
-		M_EndTemporaryMemory(&temp);
+			// for now we don't care, we only have single shader
 
-		if (pipeline) {
-			LogInfoEx("Resource Manager", "Reloaded File: " StrFmt, StrArg(path));
+			String content = PL_ReadEntireFile(path); // use temp memory here!!
+			R_Pipeline *pipeline = Resource_LoadPipeline(arena, device, content, path);
+			MemFree(content.data, content.length);
 
-			if (ResourceManager.pipeline_pool.count) {
-				ResourceManager.mutex.lock();
-				ResourceManager.pipeline_freed.Add(ResourceManager.pipeline_pool[0]);
-				ResourceManager.mutex.unlock();
+			if (pipeline) {
+				LogInfoEx("Resource Manager", "Reloaded File: " StrFmt, StrArg(path));
+
+				if (ResourceManager.pipeline_pool.count) {
+					ResourceManager.mutex.lock();
+					ResourceManager.pipeline_freed.Add(ResourceManager.pipeline_pool[0]);
+					ResourceManager.mutex.unlock();
+				}
+
+				ResourceManager.pipeline_pool[0] = pipeline;
 			}
+		} else if (extension == "png") {
+			HotReloading = true;
+			Defer{ HotReloading = false; };
 
-			ResourceManager.pipeline_pool[0] = pipeline;
+			Trace("png reloading...");
+
+			String content = PL_ReadEntireFile(path); // use temp memory here!!
+			if (content.length) {
+				R_Texture *texture = Resource_LoadTexture(arena, device, content, path);
+				MemFree(content.data, content.length);
+
+				if (texture) {
+					LogInfoEx("Resource Manager", "Reloaded File: " StrFmt, StrArg(path));
+
+					if (ResourceManager.texture_pool.count) {
+						ResourceManager.mutex.lock();
+						ResourceManager.texture_freed.Add(ResourceManager.texture_pool[0]);
+						ResourceManager.mutex.unlock();
+					}
+
+					ResourceManager.texture_pool[0] = texture;
+				}
+			}
 		}
 	}
 }
@@ -638,15 +693,36 @@ int Main(int argc, char **argv) {
 
 	R_Renderer2d *renderer = R_CreateRenderer2d(&backend);
 
-	String path    = "Resources/Shaders/HLSL/Quad.shader";
-	String content = PL_ReadEntireFile(path);
+	String shader_path    = "Resources/Shaders/HLSL/Quad.shader";
+	String shader_content = PL_ReadEntireFile(shader_path);
+
+	String texture_path    = "Resources/Random.png";
+	String texture_content = PL_ReadEntireFile(texture_path);
 
 	ResourceManager.pipeline_pool  = Array<R_Pipeline *>(ThreadContext.allocator);
 	ResourceManager.pipeline_freed = Array<R_Pipeline *>(ThreadContext.allocator);
 
-	uint32_t pipeline_handle = 0;
+	ResourceManager.texture_pool  = Array<R_Texture *>(ThreadContext.allocator);
+	ResourceManager.texture_freed = Array<R_Texture *>(ThreadContext.allocator);
 
-	ResourceManager.pipeline_pool.Add(Resource_LoadPipeline(ThreadScratchpad(), rdevice, content, path));
+	uint32_t pipeline_handle = 0;
+	uint32_t texture_handle = 0;
+
+	ResourceManager.pipeline_pool.Add(Resource_LoadPipeline(ThreadScratchpad(), rdevice, shader_content, shader_path));
+	ResourceManager.texture_pool.Add(Resource_LoadTexture(ThreadScratchpad(), rdevice, texture_content, texture_path));
+
+	stbi_set_flip_vertically_on_load(1);
+
+	Vec2 target_pos;
+	R_GetRenderTargetSize(swap_chain, &target_pos.x, &target_pos.y);
+	target_pos = 0.5f * target_pos;
+
+	float target_angle = 0;
+
+	Vec2 pos = target_pos;
+	float angle = target_angle;
+
+	bool follow_cursor = false;
 
 	bool running = true;
 
@@ -658,6 +734,25 @@ int Main(int argc, char **argv) {
 				PL_DestroyWindow(window);
 				running = false;
 				break;
+			}
+
+			if (e.kind == PL_EVENT_BUTTON_PRESSED && e.button.id == PL_BUTTON_LEFT) {
+				follow_cursor = true;
+				target_pos.x = e.button.x;
+				target_pos.y = e.button.y;
+
+				Vec2 dir = target_pos - pos;
+
+				target_angle = ArcTan2(dir.y, dir.x);
+			} else if (e.kind == PL_EVENT_BUTTON_RELEASED && e.button.id == PL_BUTTON_LEFT) {
+				follow_cursor = false;
+			} else if (e.kind == PL_EVENT_CURSOR && follow_cursor) {
+				target_pos.x = e.cursor.x;
+				target_pos.y = e.cursor.y;
+
+				Vec2 dir = target_pos - pos;
+
+				target_angle = ArcTan2(dir.y, dir.x);
 			}
 
 			if (e.kind == PL_EVENT_RESIZE) {
@@ -676,8 +771,44 @@ int Main(int argc, char **argv) {
 
 		R_SetPipeline(renderer, ResourceManager.pipeline_pool[pipeline_handle]);
 
-		R_DrawText(renderer, Vec2(0, 10), Vec4(1), u8"A-あ", 5.0f);
-		R_DrawRect(renderer, 0.5f * Vec2(width, height), Vec2(100), Vec4(1));
+		static float reload_alpha = 0;
+		static float reload_x     = 400;
+
+		if (HotReloading) {
+			reload_alpha = Lerp(reload_alpha, 1.0f, 0.1f);
+			reload_x     = Lerp(reload_x, 0.0f, 0.2f);
+		} else {
+			reload_alpha = Lerp(reload_alpha, 0.0f, 0.1f);
+			reload_x     = Lerp(reload_x, 400.0f, 0.1f);
+		}
+
+		{
+			String text = "Loading resource...";
+
+			R_Font *font = R_DefaultFont(renderer);
+
+			float box_height = font->height;
+			float box_width = R_PrepareText(renderer, text, font);
+
+			Vec2 p = Vec2(13 - reload_x, height - 28);
+			Vec2 e = Vec2(10, 10);
+
+			R_DrawRect(renderer, p-e, Vec2(box_width, box_height) + 2*e, Vec4(0.8f, 0.8f, 0.8f, reload_alpha));
+			e -= Vec2(1);
+			R_DrawRect(renderer, p-e, Vec2(box_width, box_height) + 2*e, Vec4(0.05f, 0.05f, 0.05f, reload_alpha));
+			R_DrawText(renderer, p, Vec4(1, 1, 1, reload_alpha), text);
+		}
+
+		R_DrawLine(renderer, pos, target_pos, Vec4(1, 1, 0, 1));
+
+		pos = Lerp(pos, target_pos, 0.07f);
+		angle = Lerp(angle, target_angle, 0.07f);
+
+
+		R_Texture *tex = ResourceManager.texture_pool[texture_handle];
+		R_PushTexture(renderer, tex);
+		R_DrawRectCenteredRotated(renderer, pos, Vec2(50), angle, Vec4(1));
+		R_PopTexture(renderer);
 
 		R_Viewport viewport;
 		viewport.y = viewport.x = 0;
@@ -697,11 +828,18 @@ int Main(int argc, char **argv) {
 
 		R_Present(swap_chain);
 
-		ResourceManager.mutex.lock();
-		for (R_Pipeline *pipeline : ResourceManager.pipeline_freed)
-			R_DestroyPipeline(pipeline);
-		ResourceManager.pipeline_freed.count = 0;
-		ResourceManager.mutex.unlock();
+		if (ResourceManager.pipeline_freed.count || ResourceManager.texture_freed.count) {
+			R_Flush(rqueue);
+
+			ResourceManager.mutex.lock();
+			for (R_Pipeline *pipeline : ResourceManager.pipeline_freed)
+				R_DestroyPipeline(pipeline);
+			ResourceManager.pipeline_freed.count = 0;
+			for (R_Texture *texture : ResourceManager.texture_freed)
+				R_DestroyTexture(texture);
+			ResourceManager.texture_freed.count = 0;
+			ResourceManager.mutex.unlock();
+		}
 
 		ThreadResetScratchpad();
 	}

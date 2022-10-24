@@ -1,4 +1,4 @@
-[[Blend0=true, Depth=true, Fill=solid, Cull=none, Scissor=true, FrontFace=cw, Filter=linear]]
+[[Blend0=true, Depth=true, Fill=solid, Cull=none, Scissor=true, FrontFace=ccw, Filter=linear]]
 
 struct Vertex_Input {
 	float3 Position : POSITION;
@@ -27,6 +27,6 @@ Vertex_Output VertexMain(Vertex_Input vertex) {
 Texture2D    TexImage : register(t0);
 SamplerState Sampler  : register(s0);
 
-float4 PixelMain(Vertex_Output input) : SV_Target{
+float4 PixelMain(Vertex_Output input) : SV_Target {
 	return TexImage.Sample(Sampler, input.TexCoord) * input.Color;
 }
