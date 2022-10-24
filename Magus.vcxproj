@@ -84,6 +84,7 @@
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>
+    <ClCompile Include="Magus\ResourcePipeline_Direct3D11.cpp" />
     <ClCompile Include="Magus\RenderBackend_Direct3D11.cpp" />
     <ClCompile Include="Magus\Kr\KrMedia.cpp" />
     <ClCompile Include="Magus\Kr\KrMemory.cpp" />
@@ -109,6 +110,7 @@
     <ClInclude Include="Magus\Kr\PlatformSpecific\Windows\KrMedia.hpp" />
     <ClInclude Include="Magus\Kr\KrRender2d.h" />
     <ClInclude Include="Magus\Kr\KrRobotoMedium.h" />
+    <ClInclude Include="Magus\ResourceManager.h" />
     <ClInclude Include="Magus\stb_rect_pack.h" />
     <ClInclude Include="Magus\stb_truetype.h" />
   </ItemGroup>
@@ -119,21 +121,7 @@
     <None Include="Magus\Kr\.gitignore" />
     <None Include="Magus\Kr\LICENSE" />
     <None Include="Magus\Kr\README.md" />
-    <None Include="Magus\Shaders\HLSL\QuadLayout.hlsli" />
-  </ItemGroup>
-  <ItemGroup>
-    <FxCompile Include="Magus\Shaders\HLSL\QuadPixel.hlsl">
-      <ShaderType Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">Pixel</ShaderType>
-      <ShaderType Condition="'$(Configuration)|$(Platform)'=='Release|x64'">Pixel</ShaderType>
-      <ObjectFileOutput Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">$(SolutionDir)Resources\Shaders\HLSL\%(Filename).cso</ObjectFileOutput>
-      <ObjectFileOutput Condition="'$(Configuration)|$(Platform)'=='Release|x64'">$(SolutionDir)Resources\Shaders\HLSL\%(Filename).cso</ObjectFileOutput>
-    </FxCompile>
-    <FxCompile Include="Magus\Shaders\HLSL\QuadVertex.hlsl">
-      <ShaderType Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">Vertex</ShaderType>
-      <ShaderType Condition="'$(Configuration)|$(Platform)'=='Release|x64'">Vertex</ShaderType>
-      <ObjectFileOutput Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">$(SolutionDir)Resources\Shaders\HLSL\%(Filename).cso</ObjectFileOutput>
-      <ObjectFileOutput Condition="'$(Configuration)|$(Platform)'=='Release|x64'">$(SolutionDir)Resources\Shaders\HLSL\%(Filename).cso</ObjectFileOutput>
-    </FxCompile>
+    <None Include="Resources\Shaders\HLSL\Quad.shader" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">

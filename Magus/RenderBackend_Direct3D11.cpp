@@ -915,7 +915,7 @@ R_RENDER_API void R_ClearRenderTarget(R_List *list, R_Render_Target *render_targ
 	deferred_context->ClearRenderTargetView(render_target_view, color);
 }
 
-R_RENDER_API void R_SetPipeline(R_List *list, R_Pipeline *pipeline) {
+R_RENDER_API void R_BindPipeline(R_List *list, R_Pipeline *pipeline) {
 	ID3D11DeviceContext1 *deferred_context = (ID3D11DeviceContext1 *)list;
 	deferred_context->IASetInputLayout(pipeline->input_layout);
 	deferred_context->VSSetShader(pipeline->vertex_shader, nullptr, 0);
@@ -926,7 +926,7 @@ R_RENDER_API void R_SetPipeline(R_List *list, R_Pipeline *pipeline) {
 	deferred_context->RSSetState(pipeline->rasterizer);
 }
 
-R_RENDER_API void R_SetVertexBuffers(R_List *list, R_Buffer **buffer, uint32_t *stride, uint32_t *offset, uint32_t location, uint32_t count) {
+R_RENDER_API void R_BindVertexBuffers(R_List *list, R_Buffer **buffer, uint32_t *stride, uint32_t *offset, uint32_t location, uint32_t count) {
 	ID3D11DeviceContext1 *deferred_context = (ID3D11DeviceContext1 *)list;
 
 	static_assert(sizeof(UINT) == sizeof(uint32_t), "");
@@ -934,20 +934,14 @@ R_RENDER_API void R_SetVertexBuffers(R_List *list, R_Buffer **buffer, uint32_t *
 	deferred_context->IASetVertexBuffers(location, count, (ID3D11Buffer **)buffer, stride, offset);
 }
 
-R_RENDER_API void R_SetIndexBuffer(R_List *list, R_Buffer *buffer, R_Format format, uint32_t offset) {
+R_RENDER_API void R_BindIndexBuffer(R_List *list, R_Buffer *buffer, R_Format format, uint32_t offset) {
 	ID3D11DeviceContext1 *deferred_context = (ID3D11DeviceContext1 *)list;
 	ID3D11Buffer *buffer_handle = (ID3D11Buffer *)buffer;
 	DXGI_FORMAT index_fmt = FormatMap[format];
 	deferred_context->IASetIndexBuffer(buffer_handle, index_fmt, (UINT)offset);
 }
 
-R_RENDER_API void R_SetPrimitiveTopology(R_List *list, R_Primitive_Topology topology) {
-	ID3D11DeviceContext1 *deferred_context = (ID3D11DeviceContext1 *)list;
-	D3D11_PRIMITIVE_TOPOLOGY prim_topology = PrimitiveTopologyMap[topology];
-	deferred_context->IASetPrimitiveTopology(prim_topology);
-}
-
-R_RENDER_API void R_SetConstantBuffers(R_List *list, R_Shader shader, R_Buffer **buffer, uint32_t location, uint32_t count) {
+R_RENDER_API void R_BindConstantBuffers(R_List *list, R_Shader shader, R_Buffer **buffer, uint32_t location, uint32_t count) {
 	ID3D11DeviceContext1 *deferred_context = (ID3D11DeviceContext1 *)list;
 	if (shader == R_SHADER_VERTEX)
 		deferred_context->VSSetConstantBuffers(location, count, (ID3D11Buffer **)buffer);
@@ -957,14 +951,20 @@ R_RENDER_API void R_SetConstantBuffers(R_List *list, R_Shader shader, R_Buffer *
 		Unreachable();
 }
 
-R_RENDER_API void R_SetTextures(R_List *list, R_Texture **texture, uint32_t location, uint32_t count) {
+R_RENDER_API void R_BindTextures(R_List *list, R_Texture **texture, uint32_t location, uint32_t count) {
 	ID3D11DeviceContext1 *deferred_context = (ID3D11DeviceContext1 *)list;
 	deferred_context->PSSetShaderResources(location, count, (ID3D11ShaderResourceView **)texture);
 }
 
-R_RENDER_API void R_SetRenderTargets(R_List *list, uint32_t count, R_Render_Target *render_targets[], R_Depth_Stencil *depth_stencil) {
+R_RENDER_API void R_BindRenderTargets(R_List *list, uint32_t count, R_Render_Target *render_targets[], R_Depth_Stencil *depth_stencil) {
 	ID3D11DeviceContext1 *deferred_context = (ID3D11DeviceContext1 *)list;
 	deferred_context->OMSetRenderTargets(count, (ID3D11RenderTargetView **)render_targets, (ID3D11DepthStencilView *)depth_stencil);
+}
+
+R_RENDER_API void R_SetPrimitiveTopology(R_List *list, R_Primitive_Topology topology) {
+	ID3D11DeviceContext1 *deferred_context = (ID3D11DeviceContext1 *)list;
+	D3D11_PRIMITIVE_TOPOLOGY prim_topology = PrimitiveTopologyMap[topology];
+	deferred_context->IASetPrimitiveTopology(prim_topology);
 }
 
 R_RENDER_API void R_SetViewports(R_List *list, R_Viewport *viewports, uint32_t count) {

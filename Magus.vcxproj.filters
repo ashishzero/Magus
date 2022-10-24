@@ -39,6 +39,9 @@
     <ClCompile Include="Magus\RenderBackend_Direct3D11.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="Magus\ResourcePipeline_Direct3D11.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="Magus\Kr\KrHashTable.h">
@@ -92,6 +95,9 @@
     <ClInclude Include="Magus\RenderBackend.h">
       <Filter>Header Files</Filter>
     </ClInclude>
+    <ClInclude Include="Magus\ResourceManager.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
   </ItemGroup>
   <ItemGroup>
     <Natvis Include="Magus\Kr\KrVisualizer.natvis" />
@@ -100,10 +106,6 @@
     <None Include="Magus\Kr\.gitignore" />
     <None Include="Magus\Kr\LICENSE" />
     <None Include="Magus\Kr\README.md" />
-    <None Include="Magus\Shaders\HLSL\QuadLayout.hlsli" />
-  </ItemGroup>
-  <ItemGroup>
-    <FxCompile Include="Magus\Shaders\HLSL\QuadPixel.hlsl" />
-    <FxCompile Include="Magus\Shaders\HLSL\QuadVertex.hlsl" />
+    <None Include="Resources\Shaders\HLSL\Quad.shader" />
   </ItemGroup>
 </Project>

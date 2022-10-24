@@ -400,7 +400,7 @@ static bool R_Backend2d_UploadVertexData(R_Device *device, R_List *list, R_Backe
 		memcpy(dst, ptr, size);
 		R_UnmapBuffer(list, data->vertex);
 		uint32_t stride = sizeof(R_Vertex2d), offset = 0;
-		R_SetVertexBuffers(list, &data->vertex, &stride, &offset, 0, 1);
+		R_BindVertexBuffers(list, &data->vertex, &stride, &offset, 0, 1);
 		return true;
 	}
 	return false;
@@ -427,7 +427,7 @@ static bool R_Backend2d_UploadIndexData(R_Device *device, R_List *list, R_Backen
 		static_assert(sizeof(R_Index2d) == sizeof(uint32_t) || sizeof(R_Index2d) == sizeof(uint16_t));
 
 		R_Format format = sizeof(R_Index2d) == sizeof(uint32_t) ? R_FORMAT_R32_UINT : R_FORMAT_R16_UINT;
-		R_SetIndexBuffer(list, data->index, format, 0);
+		R_BindIndexBuffer(list, data->index, format, 0);
 		return true;
 	}
 	return false;
@@ -456,12 +456,12 @@ void R_Backend2d_UploadDrawData(R_Device *device, R_List *list, R_Backend2d_Data
 		memcpy(dst, t.m, sizeof(Mat4));
 		R_UnmapBuffer(list, data->constant);
 
-		R_SetConstantBuffers(list, R_SHADER_VERTEX, &data->constant, 0, 1);
+		R_BindConstantBuffers(list, R_SHADER_VERTEX, &data->constant, 0, 1);
 	}
 }
 
 void R_Backend2d_SetPipeline(R_List *list, R_Pipeline *pipeline) {
-	R_SetPipeline(list, pipeline);
+	R_BindPipeline(list, pipeline);
 }
 
 void R_Backend2d_SetScissor(R_List *list, R_Rect rect) {
@@ -474,7 +474,7 @@ void R_Backend2d_SetScissor(R_List *list, R_Rect rect) {
 }
 
 void R_Backend2d_SetTexture(R_List *list, R_Texture *texture) {
-	R_SetTextures(list, &texture, 0, 1);
+	R_BindTextures(list, &texture, 0, 1);
 }
 
 void R_Backend2d_DrawTriangleList(R_List *list, uint32_t index_count, uint32_t index_offset, int32_t vertex_offset) {
@@ -568,26 +568,33 @@ static String FileExtension(const String filepath) {
 	return String("");
 }
 
+static R_Pipeline *      Pipeline[2];
+static volatile uint32_t PipelineIndex;
+
 void OnDirectoryNotification(void *context, String path, uint32_t actions, uint32_t attrs) {
+	R_Device *device = (R_Device *)context;
+
 	if (FilterModifiedFile(actions, attrs)) {
 
 		String extension = FileExtension(path);
 
 		if (extension != "hlsl") return;
 
-		char buffer[512];
+		// for now we don't care, we only have single shader
 
-		int len = 0;
+		//M_Arena *arena = ThreadScratchpad();
+		//M_Temporary temp = M_BeginTemporaryMemory(arena);
+		//String content = PL_ReadEntireFile(path); // use temp memory here!!
+		//R_Pipeline *pipeline = Resource_LoadPipeline(arena, device, content, path);
+		//MemFree(content.data, content.length);
+		//M_EndTemporaryMemory(&temp);
 
-		if (actions & PL_FILE_ACTION_ADDED) len += snprintf(buffer + len, sizeof(buffer) - len, "added ");
-		if (actions & PL_FILE_ACTION_MODIFIED) len += snprintf(buffer + len, sizeof(buffer) - len, "modified ");
-		if (actions & PL_FILE_ACTION_REMOVED) len += snprintf(buffer + len, sizeof(buffer) - len, "removed ");
-		if (actions & PL_FILE_ACTION_RENAMED_OLD) len += snprintf(buffer + len, sizeof(buffer) - len, "renamed(old) ");
-		if (actions & PL_FILE_ACTION_RENAMED_NEW) len += snprintf(buffer + len, sizeof(buffer) - len, "renamed(new) ");
-
-		len += snprintf(buffer + len, sizeof(buffer) - len, "attrs: %x ", attrs);
-
-		Trace("notified: %s" StrFmt "\n", buffer, StrArg(path));
+		//uint32_t unused_index = (PipelineIndex + 1) & 1;
+		//if (Pipeline[unused_index]) {
+		//	R_DestroyPipeline(Pipeline[unused_index]);
+		//}
+		//Pipeline[unused_index] = pipeline;
+		//PipelineIndex = unused_index;
 	}
 }
 
@@ -664,7 +671,7 @@ int Main(int argc, char **argv) {
 		float clear_color[] = { .12f, .12f, .12f, 1.0f };
 		R_ClearRenderTarget(rlist, render_target, clear_color);
 
-		R_SetRenderTargets(rlist, 1, &render_target, nullptr);
+		R_BindRenderTargets(rlist, 1, &render_target, nullptr);
 		R_SetViewports(rlist, &viewport, 1);
 		R_FinishFrame(renderer, rlist);
 
