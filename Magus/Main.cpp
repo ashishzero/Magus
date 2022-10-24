@@ -60,8 +60,6 @@ R_Font *Font_Create(const R_Font_Config &config, float height_in_pixels) {
 	M_Temporary temp = M_BeginTemporaryMemory(arena);
 	Defer{ M_EndTemporaryMemory(&temp); };
 
-	uint32_t replacement_codepoint = '?';
-
 	int padding = 1;
 	float oversample_h = 2;
 	float oversample_v = 2;
@@ -133,7 +131,7 @@ R_Font *Font_Create(const R_Font_Config &config, float height_in_pixels) {
 
 					rect_count += 1;
 
-					replacement_present = replacement_present || (replacement_codepoint == codepoint);
+					replacement_present = replacement_present || (config.replacement == codepoint);
 				}
 			}
 		}
@@ -287,17 +285,17 @@ R_Font *Font_Create(const R_Font_Config &config, float height_in_pixels) {
 	}
 
 	if (replacement_present) {
-		index = font->index[replacement_codepoint];
+		index = font->index[config.replacement];
 		font->replacement = &font->glyphs[index];
 	} else {
 		gray_pixels[texture_width * texture_height - 1] = 0xff;
 
-		float box_width = height_in_pixels * 0.7f;
-		float box_height = height_in_pixels * 0.9f;
+		float box_width  = height_in_pixels * oversample_h * 0.5f;
+		float box_height = height_in_pixels * oversample_v * 0.7f;
 
-		R_Rect uv;
-		uv.min = Vec2(0.0f, (float)(texture_height - 2) / (float)texture_height);
-		uv.max = Vec2(1.0f / (float)texture_width, 1.0f);
+		R_Rect uv = {};
+		uv.min = Vec2((float)(texture_width - 1) / (float)(texture_width), (float)(texture_height - 1) / (float)(texture_height));
+		uv.max = Vec2(1.0f, 1.0f);
 
 		font->replacement = &font->glyphs[font->glyphs.count - 1];
 		font->replacement->codepoint = -1;
@@ -582,6 +580,7 @@ R_Pipeline *CreateRender2dPipeline(R_Device *device) {
 
 	R_Sampler sampler = {};
 	sampler.filter    = R_FILTER_MIN_MAG_MIP_LINEAR;
+	sampler.filter    = R_FILTER_MIN_MAG_MIP_POINT;
 	sampler.address_u = R_TEXTURE_ADDRESS_WRAP;
 	sampler.address_v = R_TEXTURE_ADDRESS_WRAP;
 	sampler.address_w = R_TEXTURE_ADDRESS_WRAP;
@@ -598,8 +597,12 @@ R_Pipeline *CreateRender2dPipeline(R_Device *device) {
 	return R_CreatePipeline(device, config);
 }
 
+extern int watch_main(int argc, char **argv);
+
 int Main(int argc, char **argv) {
 	PL_Init();
+
+	watch_main(argc, argv);
 
 	PL_ThreadCharacteristics(PL_THREAD_GAMES);
 	
@@ -617,7 +620,16 @@ int Main(int argc, char **argv) {
 
 	R_Backend2d_Impl backend = CreateRenderer2dBackend(rdevice);
 
-	R_Renderer2d *renderer = R_CreateRenderer2d(&backend);
+	R_Font_File files[] = { Renderer2dEmbeddedFont, 0, Renderer2dDefaultCodepointRange };
+	R_Font_Config config;
+	config.files = files;
+	config.replacement = 0xfffd;
+	config.texture = R_FONT_TEXTURE_RGBA;
+
+	R_Specification2d spec = Renderer2dDefaultSpec;
+	spec.font.config = &config;
+
+	R_Renderer2d *renderer = R_CreateRenderer2d(&backend, spec);
 
 	R_Pipeline *pipeline = CreateRender2dPipeline(rdevice);
 
@@ -649,12 +661,12 @@ int Main(int argc, char **argv) {
 
 		R_SetPipeline(renderer, pipeline);
 
-		R_DrawText(renderer, Vec2(10, height - 50), Vec4(1), u8"The cake is a lie.");
-		R_DrawRect(renderer, 0.5f * Vec2(width, height), Vec2(100), Vec4(1));
+		R_DrawText(renderer, Vec2(0, 10), Vec4(1), u8"A-あ", 5.0f);
+		//R_DrawRect(renderer, 0.5f * Vec2(width, height), Vec2(100), Vec4(1));
 
-		//R_Font *font = R_DefaultFont(renderer);
-		//R_Font_Internal *_internal = (R_Font_Internal *)font->_internal;
-		//R_DrawTexture(renderer, font->texture, Vec2(50), Vec2(_internal->width, _internal->height));
+		R_Font *font = R_DefaultFont(renderer);
+		R_Font_Internal *_internal = (R_Font_Internal *)font->_internal;
+		R_DrawTexture(renderer, font->texture, Vec2(500, 10), Vec2(_internal->width, _internal->height), Vec4(1, 1, 0, 1));
 
 		R_Viewport viewport;
 		viewport.y = viewport.x = 0;

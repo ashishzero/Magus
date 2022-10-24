@@ -33,10 +33,13 @@
     <ClCompile Include="Magus\Kr\KrMedia.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
-    <ClCompile Include="Magus\Render2d.cpp">
+    <ClCompile Include="Magus\Kr\KrRender2d.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
     <ClCompile Include="Magus\RenderBackend_Direct3D11.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="Magus\Watch.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
   </ItemGroup>
@@ -77,10 +80,7 @@
     <ClInclude Include="Magus\Kr\KrMediaNative.h">
       <Filter>Header Files</Filter>
     </ClInclude>
-    <ClInclude Include="Magus\Render2d.h">
-      <Filter>Header Files</Filter>
-    </ClInclude>
-    <ClInclude Include="Magus\Render2dImpl.h">
+    <ClInclude Include="Magus\Kr\KrRender2d.h">
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="Magus\stb_truetype.h">
@@ -89,7 +89,7 @@
     <ClInclude Include="Magus\stb_rect_pack.h">
       <Filter>Header Files</Filter>
     </ClInclude>
-    <ClInclude Include="Magus\RobotoMedium.h">
+    <ClInclude Include="Magus\Kr\KrRobotoMedium.h">
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="Magus\RenderBackend.h">
@@ -103,5 +103,10 @@
     <None Include="Magus\Kr\.gitignore" />
     <None Include="Magus\Kr\LICENSE" />
     <None Include="Magus\Kr\README.md" />
+    <None Include="Magus\Shaders\HLSL\QuadLayout.hlsli" />
+  </ItemGroup>
+  <ItemGroup>
+    <FxCompile Include="Magus\Shaders\HLSL\QuadPixel.hlsl" />
+    <FxCompile Include="Magus\Shaders\HLSL\QuadVertex.hlsl" />
   </ItemGroup>
 </Project>
