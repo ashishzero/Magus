@@ -568,8 +568,16 @@ static String FileExtension(const String filepath) {
 	return String("");
 }
 
-static R_Pipeline *      Pipeline[2];
-static volatile uint32_t PipelineIndex;
+#include <mutex>
+
+struct Resource_Manager {
+	Array<R_Pipeline *> pipeline_pool;
+	Array<R_Pipeline *> pipeline_freed;
+
+	std::mutex          mutex; // todo: remove mutex
+};
+
+static Resource_Manager ResourceManager;
 
 void OnDirectoryNotification(void *context, String path, uint32_t actions, uint32_t attrs) {
 	R_Device *device = (R_Device *)context;
@@ -578,23 +586,28 @@ void OnDirectoryNotification(void *context, String path, uint32_t actions, uint3
 
 		String extension = FileExtension(path);
 
-		if (extension != "hlsl") return;
+		if (extension != "shader") return;
 
 		// for now we don't care, we only have single shader
 
-		//M_Arena *arena = ThreadScratchpad();
-		//M_Temporary temp = M_BeginTemporaryMemory(arena);
-		//String content = PL_ReadEntireFile(path); // use temp memory here!!
-		//R_Pipeline *pipeline = Resource_LoadPipeline(arena, device, content, path);
-		//MemFree(content.data, content.length);
-		//M_EndTemporaryMemory(&temp);
+		M_Arena *arena = ThreadScratchpad();
+		M_Temporary temp = M_BeginTemporaryMemory(arena);
+		String content = PL_ReadEntireFile(path); // use temp memory here!!
+		R_Pipeline *pipeline = Resource_LoadPipeline(arena, device, content, path);
+		MemFree(content.data, content.length);
+		M_EndTemporaryMemory(&temp);
 
-		//uint32_t unused_index = (PipelineIndex + 1) & 1;
-		//if (Pipeline[unused_index]) {
-		//	R_DestroyPipeline(Pipeline[unused_index]);
-		//}
-		//Pipeline[unused_index] = pipeline;
-		//PipelineIndex = unused_index;
+		if (pipeline) {
+			LogInfoEx("Resource Manager", "Reloaded File: " StrFmt, StrArg(path));
+
+			if (ResourceManager.pipeline_pool.count) {
+				ResourceManager.mutex.lock();
+				ResourceManager.pipeline_freed.Add(ResourceManager.pipeline_pool[0]);
+				ResourceManager.mutex.unlock();
+			}
+
+			ResourceManager.pipeline_pool[0] = pipeline;
+		}
 	}
 }
 
@@ -603,17 +616,17 @@ int Main(int argc, char **argv) {
 
 	PL_ThreadCharacteristics(PL_THREAD_GAMES);
 
-	PL_Watch_Directory directories[] = {
-		{ "Magus/Shaders", PL_WATCH_DIRECTORY_RECURSIVE, OnDirectoryNotification },
-	};
-
-	PL_WatchDirectory(directories);
-	
 	PL_Window *window = PL_CreateWindow("Magus", 0, 0, false);
 	if (!window)
 		FatalError("Failed to create windows");
 
 	R_Device *rdevice = R_CreateDevice(R_DEVICE_DEBUG_ENABLE);
+
+	PL_Watch_Directory directories[] = {
+		{ "Resources", PL_WATCH_DIRECTORY_RECURSIVE, OnDirectoryNotification, rdevice },
+	};
+
+	PL_WatchDirectory(directories);
 
 	R_Queue *rqueue = R_CreateRenderQueue(rdevice);
 
@@ -628,7 +641,12 @@ int Main(int argc, char **argv) {
 	String path    = "Resources/Shaders/HLSL/Quad.shader";
 	String content = PL_ReadEntireFile(path);
 
-	R_Pipeline *pipeline = Resource_LoadPipeline(ThreadScratchpad(), rdevice, content, path);
+	ResourceManager.pipeline_pool  = Array<R_Pipeline *>(ThreadContext.allocator);
+	ResourceManager.pipeline_freed = Array<R_Pipeline *>(ThreadContext.allocator);
+
+	uint32_t pipeline_handle = 0;
+
+	ResourceManager.pipeline_pool.Add(Resource_LoadPipeline(ThreadScratchpad(), rdevice, content, path));
 
 	bool running = true;
 
@@ -656,7 +674,7 @@ int Main(int argc, char **argv) {
 		R_NextFrame(renderer, R_Rect(0.0f, 0.0f, width, height));
 		R_CameraView(renderer, 0.0f, width, 0.0f, height, -1.0f, 1.0f);
 
-		R_SetPipeline(renderer, pipeline);
+		R_SetPipeline(renderer, ResourceManager.pipeline_pool[pipeline_handle]);
 
 		R_DrawText(renderer, Vec2(0, 10), Vec4(1), u8"A-あ", 5.0f);
 		R_DrawRect(renderer, 0.5f * Vec2(width, height), Vec2(100), Vec4(1));
@@ -678,6 +696,12 @@ int Main(int argc, char **argv) {
 		R_Submit(rqueue, rlist);
 
 		R_Present(swap_chain);
+
+		ResourceManager.mutex.lock();
+		for (R_Pipeline *pipeline : ResourceManager.pipeline_freed)
+			R_DestroyPipeline(pipeline);
+		ResourceManager.pipeline_freed.count = 0;
+		ResourceManager.mutex.unlock();
 
 		ThreadResetScratchpad();
 	}
