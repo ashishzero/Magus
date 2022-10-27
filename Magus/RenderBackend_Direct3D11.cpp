@@ -383,6 +383,10 @@ static IDXGIAdapter1 *R_FindAdapter(IDXGIFactory2 *factory, UINT flags) {
 //
 //
 
+R_RENDER_API const String R_GetBackendName() {
+	return "Direct3D11";
+}
+
 R_RENDER_API R_Device *R_CreateDevice(uint32_t device_flags) {
 	bool debug = (device_flags & R_DEVICE_DEBUG_ENABLE);
 
@@ -518,7 +522,7 @@ R_RENDER_API R_Swap_Chain *R_CreateSwapChain(R_Device *device, PL_Window *window
 
 	ID3D11Device1 *device1 = (ID3D11Device1 *)device;
 
-	R_Swap_Chain *r_swap_chain = (R_Swap_Chain *)MemAlloc(sizeof(R_Swap_Chain));
+	R_Swap_Chain *r_swap_chain = (R_Swap_Chain *)M_Alloc(sizeof(R_Swap_Chain));
 	if (!r_swap_chain) {
 		LogErrorEx("DirectX11", "SwapChain creation failed. Reason: Out of memory.");
 		return nullptr;
@@ -543,7 +547,7 @@ R_RENDER_API R_Swap_Chain *R_CreateSwapChain(R_Device *device, PL_Window *window
 	Assert(hr != DXGI_ERROR_INVALID_CALL);
 	if (FAILED(hr)) {
 		R_ReportDXGIError(hr);
-		MemFree(r_swap_chain, sizeof(*r_swap_chain));
+		M_Free(r_swap_chain, sizeof(*r_swap_chain));
 		return nullptr;
 	}
 
@@ -552,7 +556,7 @@ R_RENDER_API R_Swap_Chain *R_CreateSwapChain(R_Device *device, PL_Window *window
 	if (FAILED(hr)) {
 		r_swap_chain->native->Release();
 		R_ReportDXGIError(hr);
-		MemFree(r_swap_chain, sizeof(*r_swap_chain));
+		M_Free(r_swap_chain, sizeof(*r_swap_chain));
 		return nullptr;
 	}
 
@@ -562,7 +566,7 @@ R_RENDER_API R_Swap_Chain *R_CreateSwapChain(R_Device *device, PL_Window *window
 	if (FAILED(hr)) {
 		r_swap_chain->native->Release();
 		R_ReportDXGIError(hr);
-		MemFree(r_swap_chain, sizeof(*r_swap_chain));
+		M_Free(r_swap_chain, sizeof(*r_swap_chain));
 		return nullptr;
 	}
 
@@ -591,7 +595,7 @@ R_RENDER_API void R_DestroySwapChain(R_Device *device, R_Swap_Chain *swap_chain)
 
 	imm->Release();
 
-	MemFree(swap_chain, sizeof(*swap_chain));
+	M_Free(swap_chain, sizeof(*swap_chain));
 }
 
 R_RENDER_API void R_SetSyncInterval(R_Swap_Chain *swap_chain, uint32_t interval) {
@@ -673,7 +677,7 @@ R_RENDER_API R_Pipeline *R_CreatePipeline(R_Device *device, const R_Pipeline_Con
 
 	HRESULT hresult;
 
-	R_Pipeline *p = (R_Pipeline *)MemAlloc(sizeof(*p));
+	R_Pipeline *p = (R_Pipeline *)M_Alloc(sizeof(*p));
 
 	if (!p) {
 		LogErrorEx("D3D11 Backend", "Pipeline creation failed. Reason: Out of memory");
@@ -762,7 +766,7 @@ R_RENDER_API void R_DestroyPipeline(R_Pipeline *pipeline) {
 	if (pipeline->rasterizer)    pipeline->rasterizer->Release();
 	if (pipeline->sampler)       pipeline->sampler->Release();
 	if (pipeline->blend)         pipeline->blend->Release();
-	MemFree(pipeline, sizeof(*pipeline));
+	M_Free(pipeline, sizeof(*pipeline));
 }
 
 R_RENDER_API R_Buffer *R_CreateVertexBuffer(R_Device *device, R_Buffer_Usage usage, uint32_t flags, uint32_t size, void *data) {

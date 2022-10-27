@@ -16,8 +16,8 @@
 #define STB_RECT_PACK_IMPLEMENTATION
 #include "stb_rect_pack.h"
 
-#define STBTT_malloc(x,u)  ((void)(u),MemAlloc(x))
-#define STBTT_free(x,u)    ((void)(u),MemFree(x, 0))
+#define STBTT_malloc(x,u)  ((void)(u),M_Alloc(x))
+#define STBTT_free(x,u)    ((void)(u),M_Free(x, 0))
 #define STBTT_assert(x)    Assert(x)
 #define STBTT_STATIC
 
@@ -25,9 +25,9 @@
 #include "stb_truetype.h"
 
 #define STBI_ASSERT(x) Assert(x)
-#define STBI_MALLOC(sz)           MemAlloc(sz)
-#define STBI_REALLOC(p,newsz)     MemRealloc(p,0,newsz)
-#define STBI_FREE(p)              MemFree(p,0)
+#define STBI_MALLOC(sz)           M_Alloc(sz)
+#define STBI_REALLOC(p,newsz)     M_Realloc(p,0,newsz)
+#define STBI_FREE(p)              M_Free(p,0)
 #define STB_IMAGE_IMPLEMENTATION
 #include "stb_image.h"
 
@@ -187,7 +187,7 @@ R_Font *Font_Create(const R_Font_Config &config, float height_in_pixels) {
 	allocation_size += sizeof(R_Font_Glyph) * glyph_count;
 	allocation_size += sizeof(R_Font_Internal);
 
-	uint8_t *mem = (uint8_t *)MemAlloc(allocation_size);
+	uint8_t *mem = (uint8_t *)M_Alloc(allocation_size);
 	if (!mem) {
 		LogErrorEx("Font", "Failed to allocate font");
 		return nullptr;
@@ -199,23 +199,23 @@ R_Font *Font_Create(const R_Font_Config &config, float height_in_pixels) {
 	bool persistent_gray = (config.texture == R_FONT_TEXTURE_GRAYSCALE || config.texture == R_FONT_TEXTURE_SIGNED_DISTANCE_FIELD);
 
 	if (persistent_gray) {
-		gray_pixels = (uint8_t *)MemAlloc(texture_width * texture_height);
+		gray_pixels = (uint8_t *)M_Alloc(texture_width * texture_height);
 	} else {
 		gray_pixels = M_PushArray(arena, uint8_t, texture_width * texture_height);
-		rgba_pixels = (uint8_t *)MemAlloc(texture_width * texture_height * 4);
+		rgba_pixels = (uint8_t *)M_Alloc(texture_width * texture_height * 4);
 
 		if (!rgba_pixels) {
 			LogErrorEx("Font", "Failed to allocate RGBA pixels");
-			MemFree(mem, allocation_size);
+			M_Free(mem, allocation_size);
 			return nullptr;
 		}
 	}
 
 	if (!gray_pixels) {
 		LogErrorEx("Font", "Failed to allocate gray pixels");
-		MemFree(mem, allocation_size);
+		M_Free(mem, allocation_size);
 		if (!persistent_gray) {
-			MemFree(rgba_pixels, texture_width * texture_height * 4);
+			M_Free(rgba_pixels, texture_width * texture_height * 4);
 		}
 		return nullptr;
 	}
@@ -590,6 +590,49 @@ static String FileExtension(const String filepath) {
 	return String("");
 }
 
+//struct Resource_Handle { 
+//	ptrdiff_t value; 
+//
+//	operator bool() {
+//		return value != 0;
+//	}
+//};
+//
+//enum Resource_Kind : uint32_t {
+//	RESOURCE_TEXTURE,
+//	RESOURCE_PIPELINE,
+//
+//	_RESOURCE_COUNT
+//};
+//
+//struct Resource_Key {
+//	Resource_Kind  kind;
+//	uint32_t       name;
+//	ptrdiff_t      value;
+//	Resource_Key * next;
+//};
+//
+//struct Resource_Index {
+//	Resource_Key *data;
+//	ptrdiff_t     count;
+//};
+//
+//struct Resource_Manager {
+//	Resource_Index index;
+//
+//	M_Arena *      strings;
+//};
+//
+//Resource_Handle Manager_LoadResource(Resource_Manager *manager, String path, Resource_Kind req_kind) {
+//	
+//}
+
+// LoadTexture(...)
+// LoadPipeline(...)
+// ReleaseTexture(...)
+// ReleasePipeline(...)
+// GetResource(...)
+
 #include <mutex>
 
 struct Resource_Manager {
@@ -626,14 +669,14 @@ void OnDirectoryNotification(void *context, String path, uint32_t actions, uint3
 
 			String content = PL_ReadEntireFile(path); // use temp memory here!!
 			R_Pipeline *pipeline = Resource_LoadPipeline(arena, device, content, path);
-			MemFree(content.data, content.length);
+			M_Free(content.data, content.length);
 
 			if (pipeline) {
 				LogInfoEx("Resource Manager", "Reloaded File: " StrFmt, StrArg(path));
 
 				if (ResourceManager.pipeline_pool.count) {
 					ResourceManager.mutex.lock();
-					ResourceManager.pipeline_freed.Add(ResourceManager.pipeline_pool[0]);
+					Append(&ResourceManager.pipeline_freed, ResourceManager.pipeline_pool[0]);
 					ResourceManager.mutex.unlock();
 				}
 
@@ -648,14 +691,14 @@ void OnDirectoryNotification(void *context, String path, uint32_t actions, uint3
 			String content = PL_ReadEntireFile(path); // use temp memory here!!
 			if (content.length) {
 				R_Texture *texture = Resource_LoadTexture(arena, device, content, path);
-				MemFree(content.data, content.length);
+				M_Free(content.data, content.length);
 
 				if (texture) {
 					LogInfoEx("Resource Manager", "Reloaded File: " StrFmt, StrArg(path));
 
 					if (ResourceManager.texture_pool.count) {
 						ResourceManager.mutex.lock();
-						ResourceManager.texture_freed.Add(ResourceManager.texture_pool[0]);
+						Append(&ResourceManager.texture_freed, ResourceManager.texture_pool[0]);
 						ResourceManager.mutex.unlock();
 					}
 
@@ -666,8 +709,31 @@ void OnDirectoryNotification(void *context, String path, uint32_t actions, uint3
 	}
 }
 
+#include "Kr/KrMap.h"
+
 int Main(int argc, char **argv) {
 	PL_Init();
+
+	Map<Span, int> map;
+
+	map["one"]   = 1;
+	map["two"]   = 2;
+	map["three"] = 3;
+
+	Remove(&map, String("one"));
+
+	PackStrings(&map);
+
+	int *val;
+
+	val = Find(map, String("one"));
+	val = Find(map, String("two"));
+	val = Find(map, String("three"));
+	val = Find(map, String("four"));
+
+	Free(&map);
+
+	return 0;
 
 	PL_ThreadCharacteristics(PL_THREAD_GAMES);
 
@@ -708,8 +774,8 @@ int Main(int argc, char **argv) {
 	uint32_t pipeline_handle = 0;
 	uint32_t texture_handle = 0;
 
-	ResourceManager.pipeline_pool.Add(Resource_LoadPipeline(ThreadScratchpad(), rdevice, shader_content, shader_path));
-	ResourceManager.texture_pool.Add(Resource_LoadTexture(ThreadScratchpad(), rdevice, texture_content, texture_path));
+	Append(&ResourceManager.pipeline_pool, Resource_LoadPipeline(ThreadScratchpad(), rdevice, shader_content, shader_path));
+	Append(&ResourceManager.texture_pool, Resource_LoadTexture(ThreadScratchpad(), rdevice, texture_content, texture_path));
 
 	stbi_set_flip_vertically_on_load(1);
 
@@ -738,8 +804,8 @@ int Main(int argc, char **argv) {
 
 			if (e.kind == PL_EVENT_BUTTON_PRESSED && e.button.id == PL_BUTTON_LEFT) {
 				follow_cursor = true;
-				target_pos.x = e.button.x;
-				target_pos.y = e.button.y;
+				target_pos.x = (float)e.button.x;
+				target_pos.y = (float)e.button.y;
 
 				Vec2 dir = target_pos - pos;
 
@@ -747,8 +813,8 @@ int Main(int argc, char **argv) {
 			} else if (e.kind == PL_EVENT_BUTTON_RELEASED && e.button.id == PL_BUTTON_LEFT) {
 				follow_cursor = false;
 			} else if (e.kind == PL_EVENT_CURSOR && follow_cursor) {
-				target_pos.x = e.cursor.x;
-				target_pos.y = e.cursor.y;
+				target_pos.x = (float)e.cursor.x;
+				target_pos.y = (float)e.cursor.y;
 
 				Vec2 dir = target_pos - pos;
 

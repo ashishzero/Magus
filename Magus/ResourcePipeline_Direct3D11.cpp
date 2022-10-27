@@ -223,6 +223,7 @@ R_Pipeline *Resource_LoadPipeline(M_Arena *arena, R_Device *device, String conte
 	reflector->GetDesc(&shader_desc);
 
 	Array<R_Input_Layout_Element> input_elements(M_GetArenaAllocator(arena));
+	Reserve(&input_elements, shader_desc.InputParameters);
 
 	uint32_t current_offset = 0;
 
@@ -230,7 +231,7 @@ R_Pipeline *Resource_LoadPipeline(M_Arena *arena, R_Device *device, String conte
 		D3D11_SIGNATURE_PARAMETER_DESC param_desc;
 		reflector->GetInputParameterDesc(i, &param_desc);
 
-		R_Input_Layout_Element *elem = input_elements.Add();
+		R_Input_Layout_Element *elem = Append(&input_elements);
 		if (!elem) {
 			LogErrorEx(LogSource, "Could not create pipeline: " StrFmt ". Reason: Out of temporary memory.", StrArg(path));
 			return nullptr;

@@ -305,6 +305,8 @@ struct R_Scissor {
 	float max_x, max_y;
 };
 
+const String      R_GetBackendName();
+
 R_Device *        R_CreateDevice(uint32_t device_flags);
 void              R_DestroyDevice(R_Device *device);
 
