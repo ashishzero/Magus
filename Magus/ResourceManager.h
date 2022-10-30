@@ -1,5 +1,5 @@
 #pragma once
-#include "Kr/KrPrelude.h"
+#include "Kr/KrMemory.h"
 
 struct R_Device;
 struct R_Pipeline;

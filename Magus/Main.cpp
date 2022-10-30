@@ -1,10 +1,10 @@
-﻿#include "Kr/KrPrelude.h"
-#include "Kr/KrMedia.h"
+﻿#include "Kr/KrMedia.h"
 #include "Kr/KrMath.h"
 #include "Kr/KrArray.h"
-#include "Kr/KrRender2d.h"
 #include "Kr/KrString.h"
+#include "Kr/KrLog.h"
 
+#include "Render2d.h"
 #include "RenderBackend.h"
 #include "ResourceManager.h"
 
@@ -189,7 +189,7 @@ R_Font *Font_Create(const R_Font_Config &config, float height_in_pixels) {
 
 	uint8_t *mem = (uint8_t *)M_Alloc(allocation_size);
 	if (!mem) {
-		LogErrorEx("Font", "Failed to allocate font");
+		LogError("Font: Failed to allocate font");
 		return nullptr;
 	}
 
@@ -205,14 +205,14 @@ R_Font *Font_Create(const R_Font_Config &config, float height_in_pixels) {
 		rgba_pixels = (uint8_t *)M_Alloc(texture_width * texture_height * 4);
 
 		if (!rgba_pixels) {
-			LogErrorEx("Font", "Failed to allocate RGBA pixels");
+			LogError("Font: Failed to allocate RGBA pixels");
 			M_Free(mem, allocation_size);
 			return nullptr;
 		}
 	}
 
 	if (!gray_pixels) {
-		LogErrorEx("Font", "Failed to allocate gray pixels");
+		LogError("Font: Failed to allocate gray pixels");
 		M_Free(mem, allocation_size);
 		if (!persistent_gray) {
 			M_Free(rgba_pixels, texture_width * texture_height * 4);
@@ -431,7 +431,7 @@ static bool R_Backend2d_UploadIndexData(R_Device *device, R_List *list, R_Backen
 		memcpy(dst, ptr, size);
 		R_UnmapBuffer(list, data->index);
 
-		static_assert(sizeof(R_Index2d) == sizeof(uint32_t) || sizeof(R_Index2d) == sizeof(uint16_t));
+		static_assert(sizeof(R_Index2d) == sizeof(uint32_t) || sizeof(R_Index2d) == sizeof(uint16_t), "");
 
 		R_Format format = sizeof(R_Index2d) == sizeof(uint32_t) ? R_FORMAT_R32_UINT : R_FORMAT_R16_UINT;
 		R_BindIndexBuffer(list, data->index, format, 0);
@@ -566,28 +566,16 @@ R_Backend2d_Impl CreateRenderer2dBackend(R_Device *device) {
 
 R_Texture *Resource_LoadTexture(M_Arena *arena, R_Device *device, const String content, const String path) {
 	int x, y, n;
-	uint8_t *pixels = stbi_load_from_memory(content.data, (int)content.length, &x, &y, &n, 4);
+	uint8_t *pixels = stbi_load_from_memory(content.data, (int)content.count, &x, &y, &n, 4);
 	if (pixels) {
 		R_Texture *texture = R_CreateTexture(device, R_FORMAT_RGBA8_UNORM, x, y, x * 4, pixels, 0);
 		stbi_image_free(pixels);
 		return texture;
 	}
 
-	LogErrorEx("Resource Texture", "Failed to load texture: " StrFmt ". Reason: %s", StrArg(path), stbi_failure_reason());
+	LogError("Resource Texture: Failed to load texture: %. Reason: %", path, stbi_failure_reason());
 
 	return nullptr;
-}
-
-static bool FilterModifiedFile(uint32_t actions, uint32_t attrs) {
-	return ((actions & PL_FILE_ACTION_MODIFIED) && (actions & ~PL_FILE_ACTION_REMOVED) && (attrs & ~PL_FILE_ATTRIBUTE_DIRECTORY));
-}
-
-static String FileExtension(const String filepath) {
-	ptrdiff_t pos = InvFindChar(filepath, '.', filepath.length);
-	if (pos >= 0) {
-		return SubString(filepath, pos + 1);
-	}
-	return String("");
 }
 
 //struct Resource_Handle { 
@@ -633,8 +621,6 @@ static String FileExtension(const String filepath) {
 // ReleasePipeline(...)
 // GetResource(...)
 
-#include <mutex>
-
 struct Resource_Manager {
 	Array<R_Pipeline *> pipeline_pool;
 	Array<R_Pipeline *> pipeline_freed;
@@ -642,42 +628,48 @@ struct Resource_Manager {
 	Array<R_Texture *>  texture_pool;
 	Array<R_Texture *>  texture_freed;
 
-	std::mutex          mutex; // todo: remove mutex
+	PL_Mutex            mutex;
 };
 
 static Resource_Manager ResourceManager;
 
 static volatile bool HotReloading = false;
 
-void OnDirectoryNotification(void *context, String path, uint32_t actions, uint32_t attrs) {
-	R_Device *device = (R_Device *)context;
+static String FileExtension(const String filepath) {
+	ptrdiff_t pos = InvFindChar(filepath, '.', filepath.count);
+	if (pos >= 0) {
+		return SubString(filepath, pos + 1);
+	}
+	return String("");
+}
 
-	if (FilterModifiedFile(actions, attrs)) {
+void OnDirectoryEvent(PL_Directory *dir, const String filename, uint32_t actions, void *user_ptr) {
+	R_Device *device = (R_Device *)user_ptr;
+
+	if ((actions & PL_FILE_ACTION_MODIFIED) && (actions & ~PL_FILE_ACTION_REMOVED)) {
+		String extension = FileExtension(filename);
+
 		M_Arena *arena = ThreadScratchpad();
-		M_Temporary temp = M_BeginTemporaryMemory(arena);
-		Defer{ M_EndTemporaryMemory(&temp); };
-
-		String extension = FileExtension(path);
 
 		if (extension == "shader") {
 			HotReloading = true;
 			Defer{ HotReloading = false; };
 
-			Trace("shader reloading...");
+			String path = Format("Resources/%", filename);
 
-			// for now we don't care, we only have single shader
+			LogInfo("Reloading shader: %...", path);
 
-			String content = PL_ReadEntireFile(path); // use temp memory here!!
+			String content = PL_ReadEntireFile(path);
 			R_Pipeline *pipeline = Resource_LoadPipeline(arena, device, content, path);
-			M_Free(content.data, content.length);
+			M_Free(content.data, content.count);
 
 			if (pipeline) {
-				LogInfoEx("Resource Manager", "Reloaded File: " StrFmt, StrArg(path));
+				LogInfo("Sucessfully reloaded shader: %", path);
 
 				if (ResourceManager.pipeline_pool.count) {
-					ResourceManager.mutex.lock();
+					PL_LockMutex(&ResourceManager.mutex);
 					Append(&ResourceManager.pipeline_freed, ResourceManager.pipeline_pool[0]);
-					ResourceManager.mutex.unlock();
+					PL_UnlockMutex(&ResourceManager.mutex);
 				}
 
 				ResourceManager.pipeline_pool[0] = pipeline;
@@ -686,20 +678,22 @@ void OnDirectoryNotification(void *context, String path, uint32_t actions, uint3
 			HotReloading = true;
 			Defer{ HotReloading = false; };
 
-			Trace("png reloading...");
+			String path = Format("Resources/%", filename);
 
-			String content = PL_ReadEntireFile(path); // use temp memory here!!
-			if (content.length) {
+			Trace("Reloading Image: %...", path);
+
+			String content = PL_ReadEntireFile(path);
+			if (content.count) {
 				R_Texture *texture = Resource_LoadTexture(arena, device, content, path);
-				M_Free(content.data, content.length);
+				M_Free(content.data, content.count);
 
 				if (texture) {
-					LogInfoEx("Resource Manager", "Reloaded File: " StrFmt, StrArg(path));
+					LogInfo("Successfully reloaded image: %", path);
 
 					if (ResourceManager.texture_pool.count) {
-						ResourceManager.mutex.lock();
+						PL_LockMutex(&ResourceManager.mutex);
 						Append(&ResourceManager.texture_freed, ResourceManager.texture_pool[0]);
-						ResourceManager.mutex.unlock();
+						PL_UnlockMutex(&ResourceManager.mutex);
 					}
 
 					ResourceManager.texture_pool[0] = texture;
@@ -709,32 +703,28 @@ void OnDirectoryNotification(void *context, String path, uint32_t actions, uint3
 	}
 }
 
-#include "Kr/KrMap.h"
+int WatchDirectoryThread(void *arg) {
+	String resource_dir = "Resources";
+
+	LogInfo("Watching resource directory: %", resource_dir);
+
+	PL_Directory *dir = PL_OpenDirectory(resource_dir);
+
+	if (!dir) {
+		FatalError("Could not open Resources directory");
+	}
+
+	M_Arena *arena = ThreadScratchpad();
+	ThreadContext.allocator = M_GetArenaAllocator(arena);
+
+	while (1) {
+		PL_ReadDirectoryChanges(dir, true, OnDirectoryEvent, arg);
+		ResetThreadScratchpad();
+	}
+	return 0;
+}
 
 int Main(int argc, char **argv) {
-	PL_Init();
-
-	Map<Span, int> map;
-
-	map["one"]   = 1;
-	map["two"]   = 2;
-	map["three"] = 3;
-
-	Remove(&map, String("one"));
-
-	PackStrings(&map);
-
-	int *val;
-
-	val = Find(map, String("one"));
-	val = Find(map, String("two"));
-	val = Find(map, String("three"));
-	val = Find(map, String("four"));
-
-	Free(&map);
-
-	return 0;
-
 	PL_ThreadCharacteristics(PL_THREAD_GAMES);
 
 	PL_Window *window = PL_CreateWindow("Magus", 0, 0, false);
@@ -742,12 +732,6 @@ int Main(int argc, char **argv) {
 		FatalError("Failed to create windows");
 
 	R_Device *rdevice = R_CreateDevice(R_DEVICE_DEBUG_ENABLE);
-
-	PL_Watch_Directory directories[] = {
-		{ "Resources", PL_WATCH_DIRECTORY_RECURSIVE, OnDirectoryNotification, rdevice },
-	};
-
-	PL_WatchDirectory(directories);
 
 	R_Queue *rqueue = R_CreateRenderQueue(rdevice);
 
@@ -771,11 +755,15 @@ int Main(int argc, char **argv) {
 	ResourceManager.texture_pool  = Array<R_Texture *>(ThreadContext.allocator);
 	ResourceManager.texture_freed = Array<R_Texture *>(ThreadContext.allocator);
 
+	PL_InitMutex(&ResourceManager.mutex);
+
 	uint32_t pipeline_handle = 0;
 	uint32_t texture_handle = 0;
 
 	Append(&ResourceManager.pipeline_pool, Resource_LoadPipeline(ThreadScratchpad(), rdevice, shader_content, shader_path));
 	Append(&ResourceManager.texture_pool, Resource_LoadTexture(ThreadScratchpad(), rdevice, texture_content, texture_path));
+
+	PL_Thread *thread = PL_CreateThread(WatchDirectoryThread, rdevice);
 
 	stbi_set_flip_vertically_on_load(1);
 
@@ -897,17 +885,17 @@ int Main(int argc, char **argv) {
 		if (ResourceManager.pipeline_freed.count || ResourceManager.texture_freed.count) {
 			R_Flush(rqueue);
 
-			ResourceManager.mutex.lock();
+			PL_LockMutex(&ResourceManager.mutex);
 			for (R_Pipeline *pipeline : ResourceManager.pipeline_freed)
 				R_DestroyPipeline(pipeline);
 			ResourceManager.pipeline_freed.count = 0;
 			for (R_Texture *texture : ResourceManager.texture_freed)
 				R_DestroyTexture(texture);
 			ResourceManager.texture_freed.count = 0;
-			ResourceManager.mutex.unlock();
+			PL_UnlockMutex(&ResourceManager.mutex);
 		}
 
-		ThreadResetScratchpad();
+		ResetThreadScratchpad();
 	}
 
 	R_DestroyRenderList(rlist);

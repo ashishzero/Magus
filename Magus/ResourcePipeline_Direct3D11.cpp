@@ -1,7 +1,7 @@
 #include "Kr/KrMedia.h"
-#include "Kr/KrPrelude.h"
 #include "Kr/KrString.h"
 #include "Kr/KrArray.h"
+#include "Kr/KrLog.h"
 
 #include "RenderBackend.h"
 
@@ -9,8 +9,6 @@
 
 #pragma comment(lib, "d3dcompiler.lib")
 #pragma comment(lib, "dxguid.lib")
-
-static constexpr char LogSource[] = "Resource Pipeline - HLSL";
 
 struct Shader_Header {
 	R_Blend         blend;
@@ -24,7 +22,7 @@ typedef void(*Parse_Shader_Header_Property_Value_Proc)(String property, String v
 static bool ParseBoolean(String property, String value) {
 	if (value == "true") return true;
 	if (value == "false") return false;
-	LogWarningEx(LogSource, "Expected boolean for " StrFmt ". Ignoring...", StrArg(property));
+	LogWarning("HLSL: Expected boolean for %. Ignoring...", property);
 	return false;
 }
 
@@ -42,8 +40,7 @@ static void ParseFillValue(String property, String value, Shader_Header *header)
 	else if (value == "wireframe")
 		header->rasterizer.fill_mode = R_FILL_WIREFRAME;
 	else
-		LogWarningEx(LogSource, "Expected \"solid\" or \"wireframe\" but got \"" StrFmt "\" for property" StrFmt 
-			". Ignoring...", StrArg(value), StrArg(property));
+		LogWarning("HLSL: Expected \"solid\" or \"wireframe\" but got \"%\" for property %. Ignoring...", value, property);
 }
 
 static void ParseCullValue(String property, String value, Shader_Header *header) {
@@ -54,8 +51,7 @@ static void ParseCullValue(String property, String value, Shader_Header *header)
 	else if (value == "back")
 		header->rasterizer.cull_mode = R_CULL_BACK;
 	else
-		LogWarningEx(LogSource, "Expected \"none\" or \"front\" or \"back\" but got \"" StrFmt "\" for property" StrFmt
-			". Ignoring...", StrArg(value), StrArg(property));
+		LogWarning("HLSL: Expected \"none\" or \"front\" or \"back\" but got \"%\" for property%. Ignoring...", value, property);
 }
 
 static void ParseScissorValue(String property, String value, Shader_Header *header) {
@@ -70,8 +66,7 @@ static void ParseFrontFaceValue(String property, String value, Shader_Header *he
 	else if (value == "ccw")
 		header->rasterizer.front_clockwise = false;
 	else
-		LogWarningEx(LogSource, "Expected \"cw\" or \"ccw\" but got \"" StrFmt "\" for property" StrFmt
-			". Ignoring...", StrArg(value), StrArg(property));
+		LogWarning("HLSL: Expected \"cw\" or \"ccw\" but got \"%\" for property %. Ignoring...", value, property);
 }
 
 static void ParseFilterValue(String property, String value, Shader_Header *header) {
@@ -80,8 +75,7 @@ static void ParseFilterValue(String property, String value, Shader_Header *heade
 	else if (value == "point")
 		header->sampler.filter = R_FILTER_MIN_MAG_MIP_POINT;
 	else
-		LogWarningEx(LogSource, "Expected \"linear\" or \"point\" but got \"" StrFmt "\" for property" StrFmt
-			". Ignoring...", StrArg(value), StrArg(property));
+		LogWarning("HLSL: Expected \"linear\" or \"point\" but got \"%\" for property %. Ignoring...", value, property);
 }
 
 static void ParseShaderHeaderBlendIndexed(String property, int index, String value, Shader_Header *header) {
@@ -94,7 +88,7 @@ static void ParseShaderHeaderBlendIndexed(String property, int index, String val
 }
 
 static void ParseShaderHeaderBlend(String property, String value, Shader_Header *header) {
-	uint8_t last_char = property[property.length - 1];
+	uint8_t last_char = property[property.count - 1];
 	int index = last_char - '0';
 	ParseShaderHeaderBlendIndexed(property, index, value, header);
 }
@@ -115,7 +109,7 @@ static_assert(ArrayCount(HeaderPropertyList) == ArrayCount(HeaderPropertyParse),
 static bool ParseShaderHeaderField(String field, Shader_Header *header) {
 	String property, value;
 	if (!SplitString(field, '=', &property, &value)) {
-		LogErrorEx(LogSource, "Expected property=value in the header fields.");
+		LogError("HLSL: Expected property=value in the header fields.");
 		return false;
 	}
 
@@ -129,7 +123,7 @@ static bool ParseShaderHeaderField(String field, Shader_Header *header) {
 		}
 	}
 
-	LogErrorEx(LogSource, "Unknow property name \"" StrFmt "\"", StrArg(property));
+	LogError("HLSL: Unknow property name \"%\"", property);
 
 	return false;
 }
@@ -138,12 +132,12 @@ static bool ParseShaderHeader(String header_str, Shader_Header *header) {
 	header_str = TrimString(header_str);
 
 	if (!StringStartsWith(header_str, "[[")) {
-		LogErrorEx(LogSource, "Expected [[ at the start of shader header");
+		LogError("HLSL: Expected [[ at the start of shader header");
 		return false;
 	}
 
 	if (!StringEndsWith(header_str, "]]")) {
-		LogErrorEx(LogSource, "Expected ]] at the start of shader header");
+		LogError("HLSL: Expected ]] at the end of shader header");
 		return false;
 	}
 
@@ -165,7 +159,7 @@ static bool ParseShaderHeader(String header_str, Shader_Header *header) {
 static String BlobToString(ID3DBlob *b) {
 	String str;
 	str.data   = (uint8_t *)b->GetBufferPointer();
-	str.length = (ptrdiff_t)b->GetBufferSize();
+	str.count  = (ptrdiff_t)b->GetBufferSize();
 	return str;
 }
 
@@ -189,22 +183,22 @@ R_Pipeline *Resource_LoadPipeline(M_Arena *arena, R_Device *device, String conte
 	ID3DBlob *error = nullptr;
 
 	ID3DBlob *vertex_binary = nullptr;
-	hresult = D3DCompile(code.data, code.length, (char *)path.data, NULL, NULL, 
+	hresult = D3DCompile(code.data, code.count, (char *)path.data, NULL, NULL,
 		"VertexMain", "vs_4_0", 0, 0, &vertex_binary, &error);
 	if (FAILED(hresult)) {
 		String message = String((uint8_t *)error->GetBufferPointer(), error->GetBufferSize());
-		LogErrorEx(LogSource, "Failed to Vertex Shader compile: " StrFmt ". Reason " StrFmt, StrArg(path), StrArg(message));
+		LogError("HLSL: Failed to Vertex Shader compile: %. Reason: %" , path, message);
 		error->Release();
 		return nullptr;
 	}
 	Defer{ vertex_binary->Release(); };
 
 	ID3DBlob *pixel_binary = nullptr;
-	hresult = D3DCompile(code.data, code.length, (char *)path.data, NULL, NULL, 
+	hresult = D3DCompile(code.data, code.count, (char *)path.data, NULL, NULL,
 		"PixelMain", "ps_4_0", 0, 0, &pixel_binary, &error);
 	if (FAILED(hresult)) {
 		String message = String((uint8_t *)error->GetBufferPointer(), error->GetBufferSize());
-		LogErrorEx(LogSource, "Failed to Pixel Shader compile: " StrFmt ". Reason " StrFmt, StrArg(path), StrArg(message));
+		LogError("HLSL: Failed to Pixel Shader compile: %. Reason: %", path, message);
 		error->Release();
 		return nullptr;
 	}
@@ -214,7 +208,7 @@ R_Pipeline *Resource_LoadPipeline(M_Arena *arena, R_Device *device, String conte
 	hresult = D3DReflect(vertex_binary->GetBufferPointer(), vertex_binary->GetBufferSize(), 
 		IID_ID3D11ShaderReflection, (void **)&reflector);
 	if (FAILED(hresult)) {
-		LogErrorEx(LogSource, "Failed to extract information from shader: " StrFmt, StrArg(path));
+		LogError("HLSL: Failed to extract information from shader: %", path);
 		return nullptr;
 	}
 	Defer{ reflector->Release(); };
@@ -233,7 +227,7 @@ R_Pipeline *Resource_LoadPipeline(M_Arena *arena, R_Device *device, String conte
 
 		R_Input_Layout_Element *elem = Append(&input_elements);
 		if (!elem) {
-			LogErrorEx(LogSource, "Could not create pipeline: " StrFmt ". Reason: Out of temporary memory.", StrArg(path));
+			LogError("HLSL: Could not create pipeline: %. Reason: Out of temporary memory.", path);
 			return nullptr;
 		}
 

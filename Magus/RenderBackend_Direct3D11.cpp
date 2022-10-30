@@ -3,7 +3,7 @@
 #include <d3d11_1.h>
 #include <dxgi1_3.h>
 
-#include "Kr/KrPrelude.h"
+#include "Kr/KrLog.h"
 #include "Kr/KrMediaNative.h"
 #include "RenderBackend.h"
 
@@ -40,7 +40,7 @@ static const char *R_DXGIErrorString(HRESULT hr) {
 
 static void R_ReportDXGIError_(HRESULT hr, const char *file, int line, const char *proc) {
 	const char *msg = R_DXGIErrorString(hr);
-	LogErrorEx("DXGI", "%s(%d) in procedure \"%s\": %s", file, line, proc, msg);
+	LogError("DXGI: %(%) in procedure \"%\": %", file, line, proc, msg);
 }
 
 static const char *R_D3D11ErrorString(HRESULT hr) {
@@ -61,7 +61,7 @@ static const char *R_D3D11ErrorString(HRESULT hr) {
 
 static void R_ReportD3D11Error_(HRESULT hr, const char *file, int line, const char *proc) {
 	const char *msg = R_D3D11ErrorString(hr);
-	LogErrorEx("D3D11", "%s(%d) in procedure \"%s\": %s", file, line, proc, msg);
+	LogError("D3D11: %(%) in procedure \"%\": %", file, line, proc, msg);
 }
 
 #define R_ReportDXGIError(hr)  R_ReportDXGIError_(hr, __FILE__, __LINE__, __PROCEDURE__)
@@ -436,7 +436,7 @@ R_RENDER_API R_Device *R_CreateDevice(uint32_t device_flags) {
 		if (SUCCEEDED(device1->QueryInterface(IID_PPV_ARGS(&debug)))) {
 			ID3D11InfoQueue *info_queue = nullptr;
 			if (SUCCEEDED(device1->QueryInterface(IID_PPV_ARGS(&info_queue)))) {
-				LogInfoEx("DirectX", "ID3D11Debug enabled.");
+				LogInfo("DirectX: ID3D11Debug enabled.");
 
 				info_queue->SetBreakOnSeverity(D3D11_MESSAGE_SEVERITY_CORRUPTION, true);
 				info_queue->SetBreakOnSeverity(D3D11_MESSAGE_SEVERITY_ERROR, true);
@@ -524,7 +524,7 @@ R_RENDER_API R_Swap_Chain *R_CreateSwapChain(R_Device *device, PL_Window *window
 
 	R_Swap_Chain *r_swap_chain = (R_Swap_Chain *)M_Alloc(sizeof(R_Swap_Chain));
 	if (!r_swap_chain) {
-		LogErrorEx("DirectX11", "SwapChain creation failed. Reason: Out of memory.");
+		LogError("DirectX11: SwapChain creation failed. Reason: Out of memory.");
 		return nullptr;
 	}
 
@@ -680,7 +680,7 @@ R_RENDER_API R_Pipeline *R_CreatePipeline(R_Device *device, const R_Pipeline_Con
 	R_Pipeline *p = (R_Pipeline *)M_Alloc(sizeof(*p));
 
 	if (!p) {
-		LogErrorEx("D3D11 Backend", "Pipeline creation failed. Reason: Out of memory");
+		LogError("D3D11 Backend: Pipeline creation failed. Reason: Out of memory");
 		return nullptr;
 	}
 
@@ -688,7 +688,7 @@ R_RENDER_API R_Pipeline *R_CreatePipeline(R_Device *device, const R_Pipeline_Con
 	hresult = device1->CreateVertexShader(config.shaders[R_SHADER_VERTEX].data, config.shaders[R_SHADER_VERTEX].count, nullptr, &p->vertex_shader);
 	if (FAILED(hresult)) {
 		R_DestroyPipeline(p);
-		LogErrorEx("D3D11 Backend", "Pipeline creation failed. Reason: Failed to compile vertex shader");
+		LogError("D3D11 Backend: Pipeline creation failed. Reason: Failed to compile vertex shader");
 		return nullptr;
 	}
 
@@ -696,7 +696,7 @@ R_RENDER_API R_Pipeline *R_CreatePipeline(R_Device *device, const R_Pipeline_Con
 	hresult = device1->CreatePixelShader(config.shaders[R_SHADER_PIXEL].data, config.shaders[R_SHADER_PIXEL].count, nullptr, &p->pixel_shader);
 	if (FAILED(hresult)) {
 		R_DestroyPipeline(p);
-		LogErrorEx("D3D11 Backend", "Pipeline creation failed. Reason: Failed to compile pixel shader");
+		LogError("D3D11 Backend: Pipeline creation failed. Reason: Failed to compile pixel shader");
 		return nullptr;
 	}
 
@@ -719,7 +719,7 @@ R_RENDER_API R_Pipeline *R_CreatePipeline(R_Device *device, const R_Pipeline_Con
 	hresult = device1->CreateInputLayout(input_elements, (uint32_t)config.input_layout->count, vertex.data, vertex.count, &p->input_layout);
 	if (FAILED(hresult)) {
 		R_DestroyPipeline(p);
-		LogErrorEx("D3D11 Backend", "Pipeline creation failed. Reason: Failed to create input layout");
+		LogError("D3D11 Backend: Pipeline creation failed. Reason: Failed to create input layout");
 		return nullptr;
 	}
 
@@ -727,7 +727,7 @@ R_RENDER_API R_Pipeline *R_CreatePipeline(R_Device *device, const R_Pipeline_Con
 	hresult = device1->CreateDepthStencilState(&depth_stencil_desc, &p->depth_stencil);
 	if (FAILED(hresult)) {
 		R_DestroyPipeline(p);
-		LogErrorEx("D3D11 Backend", "Pipeline creation failed. Reason: Failed to create depth stencil state");
+		LogError("D3D11 Backend: Pipeline creation failed. Reason: Failed to create depth stencil state");
 		return nullptr;
 	}
 
@@ -735,7 +735,7 @@ R_RENDER_API R_Pipeline *R_CreatePipeline(R_Device *device, const R_Pipeline_Con
 	hresult = device1->CreateRasterizerState(&rasterizer_desc, &p->rasterizer);
 	if (FAILED(hresult)) {
 		R_DestroyPipeline(p);
-		LogErrorEx("D3D11 Backend", "Pipeline creation failed. Reason: Failed to create rasterizer");
+		LogError("D3D11 Backend: Pipeline creation failed. Reason: Failed to create rasterizer");
 		return nullptr;
 	}
 
@@ -743,7 +743,7 @@ R_RENDER_API R_Pipeline *R_CreatePipeline(R_Device *device, const R_Pipeline_Con
 	hresult = device1->CreateSamplerState(&sampler_desc, &p->sampler);
 	if (FAILED(hresult)) {
 		R_DestroyPipeline(p);
-		LogErrorEx("D3D11 Backend", "Pipeline creation failed. Reason: Failed to create sampler");
+		LogError("D3D11 Backend: Pipeline creation failed. Reason: Failed to create sampler");
 		return nullptr;
 	}
 
@@ -751,7 +751,7 @@ R_RENDER_API R_Pipeline *R_CreatePipeline(R_Device *device, const R_Pipeline_Con
 	hresult = device1->CreateBlendState(&blend_desc, &p->blend);
 	if (FAILED(hresult)) {
 		R_DestroyPipeline(p);
-		LogErrorEx("D3D11 Backend", "Pipeline creation failed. Reason: Failed to create blend state");
+		LogError("D3D11 Backend: Pipeline creation failed. Reason: Failed to create blend state");
 		return nullptr;
 	}
 
