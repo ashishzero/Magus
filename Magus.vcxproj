@@ -84,42 +84,63 @@
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>
-    <ClCompile Include="Magus\ResourcePipeline_Direct3D11.cpp" />
+    <ClCompile Include="Magus\Kr\KrFormat.cpp" />
+    <ClCompile Include="Magus\Kr\KrIndex.cpp" />
+    <ClCompile Include="Magus\Kr\KrLog.cpp" />
+    <ClCompile Include="Magus\Kr\KrMathFormat.cpp" />
+    <ClCompile Include="Magus\Kr\KrPrint.cpp" />
+    <ClCompile Include="Magus\Kr\KrThreadContext.cpp" />
+    <ClCompile Include="Magus\Render2dBackend.cpp" />
+    <ClCompile Include="Magus\ResourceLoaders\Font.cpp" />
+    <ClCompile Include="Magus\ResourceLoaders\ImplSTB.cpp" />
+    <ClCompile Include="Magus\ResourceLoaders\Texture.cpp" />
+    <ClCompile Include="Magus\ResourceLoaders\PlatformSpecific\Direct3D11\Pipeline.cpp" />
     <ClCompile Include="Magus\RenderBackend_Direct3D11.cpp" />
     <ClCompile Include="Magus\Kr\KrMedia.cpp" />
     <ClCompile Include="Magus\Kr\KrMemory.cpp" />
     <ClCompile Include="Magus\Kr\KrMath.cpp" />
-    <ClCompile Include="Magus\Kr\KrPrelude.cpp" />
     <ClCompile Include="Magus\Kr\KrString.cpp" />
     <ClCompile Include="Magus\Main.cpp" />
-    <ClCompile Include="Magus\Kr\KrRender2d.cpp" />
+    <ClCompile Include="Magus\Render2d.cpp" />
   </ItemGroup>
   <ItemGroup>
+    <ClInclude Include="Magus\Render2dBackend.h" />
+    <ClInclude Include="Magus\RenderFont.h" />
+    <ClInclude Include="Magus\Kr\KrFormat.h" />
+    <ClInclude Include="Magus\Kr\KrIndex.h" />
+    <ClInclude Include="Magus\Kr\KrLog.h" />
+    <ClInclude Include="Magus\Kr\KrMapFormat.h" />
+    <ClInclude Include="Magus\Kr\KrMathFormat.h" />
+    <ClInclude Include="Magus\Kr\KrPrint.h" />
+    <ClInclude Include="Magus\Kr\KrThreadContext.h" />
+    <ClInclude Include="Magus\Kr\KrTypeTraits.h" />
     <ClInclude Include="Magus\RenderBackend.h" />
     <ClInclude Include="Magus\Kr\KrArray.h" />
-    <ClInclude Include="Magus\Kr\KrHashTable.h" />
+    <ClInclude Include="Magus\Kr\KrMap.h" />
     <ClInclude Include="Magus\Kr\KrCommon.h" />
-    <ClInclude Include="Magus\Kr\KrConfig.h" />
     <ClInclude Include="Magus\Kr\KrMedia.h" />
     <ClInclude Include="Magus\Kr\KrMediaNative.h" />
     <ClInclude Include="Magus\Kr\KrMemory.h" />
     <ClInclude Include="Magus\Kr\KrMath.h" />
     <ClInclude Include="Magus\Kr\KrPlatform.h" />
-    <ClInclude Include="Magus\Kr\KrPrelude.h" />
     <ClInclude Include="Magus\Kr\KrString.h" />
     <ClInclude Include="Magus\Kr\PlatformSpecific\Windows\KrMedia.hpp" />
-    <ClInclude Include="Magus\Kr\KrRender2d.h" />
-    <ClInclude Include="Magus\Kr\KrRobotoMedium.h" />
-    <ClInclude Include="Magus\ResourceManager.h" />
-    <ClInclude Include="Magus\stb_image.h" />
-    <ClInclude Include="Magus\stb_rect_pack.h" />
-    <ClInclude Include="Magus\stb_truetype.h" />
+    <ClInclude Include="Magus\Render2d.h" />
+    <ClInclude Include="Magus\ResourceLoaders\Image.h" />
+    <ClInclude Include="Magus\ResourceLoaders\RectPack.h" />
+    <ClInclude Include="Magus\ResourceLoaders\Loaders.h" />
+    <ClInclude Include="Magus\ResourceLoaders\TrueType.h" />
+    <ClInclude Include="Magus\RobotoMedium.h" />
+    <ClInclude Include="Magus\ResourceLoaders\External\stb_image.h" />
+    <ClInclude Include="Magus\ResourceLoaders\External\stb_rect_pack.h" />
+    <ClInclude Include="Magus\ResourceLoaders\External\stb_truetype.h" />
   </ItemGroup>
   <ItemGroup>
     <Natvis Include="Magus\Kr\KrVisualizer.natvis" />
   </ItemGroup>
   <ItemGroup>
     <None Include="Magus\Kr\.gitignore" />
+    <None Include="Magus\Kr\KrConfig.in" />
     <None Include="Magus\Kr\LICENSE" />
     <None Include="Magus\Kr\README.md" />
     <None Include="Resources\Shaders\HLSL\Quad.shader" />

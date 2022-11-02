@@ -3,6 +3,8 @@
 #include "Kr/KrMath.h"
 #include "Kr/KrArray.h"
 
+#include "RenderFont.h"
+
 #ifndef KR_RENDER2D_ENABLE_DEBUG_INFO
 #if defined(BUILD_DEBUG) || defined(BUILD_DEVELOPER)
 #define KR_RENDER2D_ENABLE_DEBUG_INFO
@@ -22,6 +24,7 @@ struct R_Vertex2d {
 };
 
 typedef uint32_t R_Index2d;
+typedef Rect     R_Rect;
 
 struct R_Camera2d {
 	float left;
@@ -30,14 +33,6 @@ struct R_Camera2d {
 	float top;
 	float near;
 	float far;
-};
-
-struct R_Rect {
-	Vec2 min, max;
-
-	R_Rect() {}
-	R_Rect(Vec2 a, Vec2 b) : min(a), max(b) {}
-	R_Rect(float min_x, float min_y, float max_x, float max_y) : min(min_x, min_y), max(max_x, max_y) {}
 };
 
 struct R_Pipeline;
@@ -50,42 +45,6 @@ struct R_Texture;
 extern const String Renderer2dEmbeddedFont;
 
 constexpr uint32_t  Renderer2dDefaultCodepointRange[] = { 0x20, 0xFF };
-
-struct R_Font_Glyph {
-	uint32_t codepoint;
-	float    advance;
-	Vec2     offset;
-	Vec2     dimension;
-	R_Rect   uv;
-};
-
-struct R_Font {
-	float                    height;
-	Array_View<uint16_t>     index;
-	Array_View<R_Font_Glyph> glyphs;
-	R_Font_Glyph *           replacement;
-	R_Texture *              texture;
-	void *                   _internal;
-};
-
-struct R_Font_File {
-	String               data;
-	uint32_t             index;
-	Array_View<uint32_t> cp_ranges;
-};
-
-enum R_Font_Texture_Kind {
-	R_FONT_TEXTURE_GRAYSCALE,
-	R_FONT_TEXTURE_RGBA,
-	R_FONT_TEXTURE_RGBA_COLOR,
-	R_FONT_TEXTURE_SIGNED_DISTANCE_FIELD
-};
-
-struct R_Font_Config {
-	Array_View<R_Font_File> files;
-	uint32_t                replacement = '?';
-	R_Font_Texture_Kind     texture     = R_FONT_TEXTURE_RGBA;
-};
 
 //
 //
@@ -145,21 +104,21 @@ struct R_Backend2d_Draw_Data {
 };
 
 struct R_Backend2d {
-	virtual R_Texture *CreateTexture(uint32_t w, uint32_t h, uint32_t n, const uint8_t *pixels) = 0;
-	virtual R_Texture *CreateTextureSRGBA(uint32_t w, uint32_t h, const uint8_t *pixels) = 0;
-	virtual void       DestroyTexture(R_Texture *texture) = 0;
-	virtual R_Font *   CreateFont(const R_Font_Config &config, float height_in_pixels) = 0;
-	virtual void       DestroyFont(R_Font *font) = 0;
+	R_Texture *(*CreateTexture)(R_Backend2d *, uint32_t w, uint32_t h, uint32_t n, const uint8_t *pixels);
+	R_Texture *(*CreateTextureSRGBA)(R_Backend2d *, uint32_t w, uint32_t h, const uint8_t *pixels);
+	void       (*DestroyTexture)(R_Backend2d *, R_Texture *texture);
+	R_Font *   (*CreateFont)(R_Backend2d *, const R_Font_Config &config, float height_in_pixels);
+	void       (*DestroyFont)(R_Backend2d *, R_Font *font);
 
-	virtual bool UploadVertexData(void* context, void *ptr, uint32_t size) = 0;
-	virtual bool UploadIndexData(void *context, void *ptr, uint32_t size) = 0;
-	virtual void UploadDrawData(void *context, const R_Backend2d_Draw_Data &draw_data) = 0;
-	virtual void SetPipeline(void *context, R_Pipeline *pipeline) = 0;
-	virtual void SetScissor(void *context, R_Rect rect) = 0;
-	virtual void SetTexture(void *context, R_Texture *texture) = 0;
-	virtual void DrawTriangleList(void *context, uint32_t index_count, uint32_t index_offset, int32_t vertex_offset) = 0;
+	bool (*UploadVertexData)(R_Backend2d *, void* context, void *ptr, uint32_t size);
+	bool (*UploadIndexData)(R_Backend2d *, void *context, void *ptr, uint32_t size);
+	void (*UploadDrawData)(R_Backend2d *, void *context, const R_Backend2d_Draw_Data &draw_data);
+	void (*SetPipeline)(R_Backend2d *, void *context, R_Pipeline *pipeline);
+	void (*SetScissor)(R_Backend2d *, void *context, R_Rect rect);
+	void (*SetTexture)(R_Backend2d *, void *context, R_Texture *texture);
+	void (*DrawTriangleList)(R_Backend2d *, void *context, uint32_t index_count, uint32_t index_offset, int32_t vertex_offset);
 
-	virtual void Release() = 0;
+	void (*Release)(R_Backend2d *);
 };
 
 R_Renderer2d *R_CreateRenderer2d(R_Backend2d *backend, const R_Specification2d &spec = Renderer2dDefaultSpec);

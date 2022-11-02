@@ -1,4 +1,3 @@
-#include "Kr/KrMedia.h"
 #include "Kr/KrString.h"
 #include "Kr/KrArray.h"
 #include "Kr/KrLog.h"
@@ -163,7 +162,7 @@ static String BlobToString(ID3DBlob *b) {
 	return str;
 }
 
-R_Pipeline *Resource_LoadPipeline(M_Arena *arena, R_Device *device, String content, String path) {
+R_Pipeline *LoadPipeline(M_Arena *arena, R_Device *device, String content, String path) {
 	Shader_Header header;
 	memset(&header, 0, sizeof(header));
 
@@ -282,4 +281,8 @@ R_Pipeline *Resource_LoadPipeline(M_Arena *arena, R_Device *device, String conte
 	R_Pipeline *pipeline = R_CreatePipeline(device, config);
 
 	return pipeline;
+}
+
+void ReleasePipeline(R_Pipeline *pipeline) {
+	R_DestroyPipeline(pipeline);
 }

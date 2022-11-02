@@ -65,24 +65,6 @@ struct R_Renderer2d {
 #endif
 };
 
-struct R_Backend2d_Fallback : R_Backend2d {
-	virtual R_Texture *CreateTexture(uint32_t w, uint32_t h, uint32_t n, const uint8_t *pixels) { return nullptr; }
-	virtual R_Texture *CreateTextureSRGBA(uint32_t w, uint32_t h, const uint8_t *pixels) { return nullptr; }
-	virtual void       DestroyTexture(R_Texture *texture) {}
-	virtual R_Font *   CreateFont(const R_Font_Config &configs, float height_in_pixels) { return nullptr; }
-	virtual void       DestroyFont(R_Font *font) {}
-
-	virtual bool UploadVertexData(void *context, void *ptr, uint32_t size) { return false; }
-	virtual bool UploadIndexData(void *context, void *ptr, uint32_t size) { return false; }
-	virtual void UploadDrawData(void *context, const R_Backend2d_Draw_Data &draw_data) {}
-	virtual void SetPipeline(void *context, R_Pipeline *pipeline) {}
-	virtual void SetScissor(void *context, R_Rect rect) {}
-	virtual void SetTexture(void *context, R_Texture *texture) {}
-	virtual void DrawTriangleList(void *context, uint32_t index_count, uint32_t index_offset, int32_t vertex_offset) {}
-
-	virtual void Release() {}
-};
-
 //
 //
 //
@@ -94,9 +76,24 @@ static float  UnitcircleSinValues[MAX_CIRCLE_SEGMENTS];
 
 static R_Command2d                FallbackDrawCmd     = {};
 static const R_Font               FallbackFont        = {};
-static const R_Font_File          FallbackFontFiles[] = { { Renderer2dEmbeddedFont, 0, Renderer2dDefaultCodepointRange } };
+static const R_Font_File          FallbackFontFiles[] = { { "RobotoMedium.ttf", Renderer2dEmbeddedFont, 0, Renderer2dDefaultCodepointRange}};
 static const R_Font_Config        FallbackFontConfig  = { FallbackFontFiles };
-static const R_Backend2d_Fallback FallbackBackend;
+
+static const R_Backend2d          FallbackBackend = {
+	[](R_Backend2d *, uint32_t w, uint32_t h, uint32_t n, const uint8_t *pixels) -> R_Texture *{ return nullptr; },
+	[](R_Backend2d *, uint32_t w, uint32_t h, const uint8_t *pixels) -> R_Texture *{ return nullptr; },
+	[](R_Backend2d *, R_Texture *texture) {},
+	[](R_Backend2d *, const R_Font_Config &config, float height_in_pixels) -> R_Font *{ return nullptr; },
+	[](R_Backend2d *, R_Font *font) {},
+	[](R_Backend2d *, void *context, void *ptr, uint32_t size) -> bool { return false; },
+	[](R_Backend2d *, void *context, void *ptr, uint32_t size) -> bool { return false; },
+	[](R_Backend2d *, void *context, const R_Backend2d_Draw_Data &draw_data) {},
+	[](R_Backend2d *, void *context, R_Pipeline *pipeline) {},
+	[](R_Backend2d *, void *context, R_Rect rect) {},
+	[](R_Backend2d *, void *context, R_Texture *texture) {},
+	[](R_Backend2d *, void *context, uint32_t index_count, uint32_t index_offset, int32_t vertex_offset) {},
+	[](R_Backend2d *) {}
+};
 
 static void R_InitNextDrawCommand(R_Renderer2d *r2) {
 	R_Command2d *command   = r2->write_command;
@@ -333,7 +330,7 @@ void R_DestroyRenderer2d(R_Renderer2d *r2) {
 	if (r2->default_font_config_free)
 		r2->default_font_config_free(r2->default_font_config, r2->allocator);
 	
-	r2->backend->Release();
+	r2->backend->Release(r2->backend);
 
 	Free(&r2->command, r2->allocator);
 	Free(&r2->vertex, r2->allocator);
@@ -348,24 +345,24 @@ void R_DestroyRenderer2d(R_Renderer2d *r2) {
 }
 
 R_Texture *R_Backend_CreateTexture(R_Renderer2d *r2, uint32_t w, uint32_t h, uint32_t n, const uint8_t *pixels) {
-	return r2->backend->CreateTexture(w, h, n, pixels);
+	return r2->backend->CreateTexture(r2->backend, w, h, n, pixels);
 }
 
 R_Texture *R_Backend_CreateTextureSRGBA(R_Renderer2d *r2, uint32_t w, uint32_t h, const uint8_t *pixels) {
-	return r2->backend->CreateTextureSRGBA(w, h, pixels);
+	return r2->backend->CreateTextureSRGBA(r2->backend, w, h, pixels);
 }
 
 void R_Backend_DestroyTexture(R_Renderer2d *r2, R_Texture *texture) {
-	r2->backend->DestroyTexture(texture);
+	r2->backend->DestroyTexture(r2->backend, texture);
 }
 
 R_Font *R_Backend_CreateFont(R_Renderer2d *r2, const R_Font_Config &config, float height_in_pixels) {
-	return r2->backend->CreateFont(config, height_in_pixels);
+	return r2->backend->CreateFont(r2->backend, config, height_in_pixels);
 }
 
 R_Font *R_Backend_CreateFont(R_Renderer2d *r2, String font_data, float height, Array_View<uint32_t> ranges, uint32_t index) {
 	R_Font_File files[] = {
-		{ font_data, index, ranges }
+		{ "", font_data, index, ranges}
 	};
 
 	R_Font_Config config;
@@ -375,7 +372,7 @@ R_Font *R_Backend_CreateFont(R_Renderer2d *r2, String font_data, float height, A
 
 void R_Backend_DestroyFont(R_Renderer2d *r2, R_Font *font) {
 	if (font == &FallbackFont) return;
-	r2->backend->DestroyFont(font);
+	r2->backend->DestroyFont(r2->backend, font);
 }
 
 R_Font_Glyph *R_FontFindGlyph(R_Font *font, uint32_t codepoint) {
@@ -420,7 +417,7 @@ R_Backend2d *R_SwapBackend(R_Renderer2d *r2, R_Backend2d *new_backend) {
 
 void R_SetBackend(R_Renderer2d *r2, R_Backend2d *backend) {
 	R_Backend2d *old_backend = R_SwapBackend(r2, backend);
-	old_backend->Release();
+	old_backend->Release(r2->backend);
 }
 
 R_Memory2d R_GetMemoryInformation(R_Renderer2d *r2) {
@@ -490,10 +487,10 @@ void R_FinishFrame(R_Renderer2d *r2, void *context) {
 
 	R_Backend2d *backend = r2->backend;
 
-	if (!backend->UploadVertexData(context, r2->vertex.data, (uint32_t)ArrSizeInBytes(r2->vertex)))
+	if (!backend->UploadVertexData(r2->backend, context, r2->vertex.data, (uint32_t)ArrSizeInBytes(r2->vertex)))
 		return;
 
-	if (!backend->UploadIndexData(context, r2->index.data, (uint32_t)ArrSizeInBytes(r2->index)))
+	if (!backend->UploadIndexData(r2->backend, context, r2->index.data, (uint32_t)ArrSizeInBytes(r2->index)))
 		return;
 
 	for (const R_Command2d &cmd : r2->command) {
@@ -504,11 +501,11 @@ void R_FinishFrame(R_Renderer2d *r2, void *context) {
 		draw_data.camera = cmd.camera;
 		draw_data.transform = cmd.transform;
 
-		backend->UploadDrawData(context, draw_data);
-		backend->SetPipeline(context, cmd.pipeline);
-		backend->SetScissor(context, cmd.rect);
-		backend->SetTexture(context, cmd.texture);
-		backend->DrawTriangleList(context, cmd.index_count, cmd.index_offset, cmd.vertex_offset);
+		backend->UploadDrawData(r2->backend, context, draw_data);
+		backend->SetPipeline(r2->backend, context, cmd.pipeline);
+		backend->SetScissor(r2->backend, context, cmd.rect);
+		backend->SetTexture(r2->backend, context, cmd.texture);
+		backend->DrawTriangleList(r2->backend, context, cmd.index_count, cmd.index_offset, cmd.vertex_offset);
 	}
 }
 
@@ -761,7 +758,7 @@ void R_DrawRect(R_Renderer2d *r2, Vec2 pos, Vec2 dim, R_Rect rect, Vec4 color) {
 }
 
 void R_DrawRectRotated(R_Renderer2d *r2, Vec3 pos, Vec2 dim, float angle, Vec2 uv_a, Vec2 uv_b, Vec2 uv_c, Vec2 uv_d, Vec4 color) {
-	Vec2  center = 0.5f * (2 * pos._0.xy + dim);
+	Vec2  center = 0.5f * (2.0f * pos._0.xy + dim);
 
 	Vec2  a = pos._0.xy;
 	Vec2  b = Vec2(pos.x, pos.y + dim.y);
@@ -1113,10 +1110,12 @@ static inline Vec2 R_IntersectRay(Vec2 p1, Vec2 q1, Vec2 p2, Vec2 q2) {
 	float d = d1.x * d2.y - d1.y * d2.x;
 	float n2 = -d1.x * (p1.y - p2.y) + d1.y * (p1.x - p2.x);
 
-	Assert(d != 0);
+	if (d != 0) {
+		float u = n2 / d;
+		return p2 - u * d2;
+	}
 
-	float u = n2 / d;
-	return p2 - u * d2;
+	return p1;
 }
 
 static inline void R_CalculateExtrudePoint(Vec2 point, Vec2 norm_a, Vec2 norm_b, float thickness, Vec2 *out, Vec2 *in) {
@@ -1142,8 +1141,10 @@ static inline void R_CalculateExtrudePoint(Vec2 point, Vec2 norm_a, Vec2 norm_b,
 }
 
 void R_DrawPathStroked(R_Renderer2d *r2, Vec4 color, bool closed, float z) {
-	if (r2->path.count < 2)
+	if (r2->path.count < 2) {
+		Reset(&r2->path);
 		return;
+	}
 
 	Assert(r2->path.count == 2 ? !closed : true);
 
@@ -1267,8 +1268,10 @@ void R_DrawPathStroked(R_Renderer2d *r2, Vec4 color, bool closed, float z) {
 }
 
 void R_DrawPathFilled(R_Renderer2d *r2, Vec4 color, float z) {
-	if (r2->path.count < 3)
+	if (r2->path.count < 3) {
+		Reset(&r2->path);
 		return;
+	}
 
 	Vec2 *path = r2->path.data;
 	int triangle_count = (int)r2->path.count - 2;

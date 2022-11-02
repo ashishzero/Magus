@@ -27,24 +27,51 @@
     <ClCompile Include="Magus\Kr\KrString.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
-    <ClCompile Include="Magus\Kr\KrPrelude.cpp">
-      <Filter>Source Files</Filter>
-    </ClCompile>
     <ClCompile Include="Magus\Kr\KrMedia.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
-    <ClCompile Include="Magus\Kr\KrRender2d.cpp">
+    <ClCompile Include="Magus\Render2d.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
     <ClCompile Include="Magus\RenderBackend_Direct3D11.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
-    <ClCompile Include="Magus\ResourcePipeline_Direct3D11.cpp">
+    <ClCompile Include="Magus\ResourceLoaders\PlatformSpecific\Direct3D11\Pipeline.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="Magus\Kr\KrIndex.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="Magus\Kr\KrFormat.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="Magus\Kr\KrLog.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="Magus\Kr\KrMathFormat.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="Magus\Kr\KrPrint.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="Magus\Kr\KrThreadContext.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="Magus\ResourceLoaders\Texture.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="Magus\ResourceLoaders\ImplSTB.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="Magus\ResourceLoaders\Font.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="Magus\Render2dBackend.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
   </ItemGroup>
   <ItemGroup>
-    <ClInclude Include="Magus\Kr\KrHashTable.h">
+    <ClInclude Include="Magus\Kr\KrMap.h">
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="Magus\Kr\KrMemory.h">
@@ -59,13 +86,7 @@
     <ClInclude Include="Magus\Kr\KrString.h">
       <Filter>Header Files</Filter>
     </ClInclude>
-    <ClInclude Include="Magus\Kr\KrConfig.h">
-      <Filter>Header Files</Filter>
-    </ClInclude>
     <ClInclude Include="Magus\Kr\KrCommon.h">
-      <Filter>Header Files</Filter>
-    </ClInclude>
-    <ClInclude Include="Magus\Kr\KrPrelude.h">
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="Magus\Kr\KrArray.h">
@@ -80,25 +101,64 @@
     <ClInclude Include="Magus\Kr\KrMediaNative.h">
       <Filter>Header Files</Filter>
     </ClInclude>
-    <ClInclude Include="Magus\Kr\KrRender2d.h">
+    <ClInclude Include="Magus\Render2d.h">
       <Filter>Header Files</Filter>
     </ClInclude>
-    <ClInclude Include="Magus\stb_truetype.h">
+    <ClInclude Include="Magus\ResourceLoaders\External\stb_truetype.h">
       <Filter>Header Files</Filter>
     </ClInclude>
-    <ClInclude Include="Magus\stb_rect_pack.h">
+    <ClInclude Include="Magus\ResourceLoaders\External\stb_rect_pack.h">
       <Filter>Header Files</Filter>
     </ClInclude>
-    <ClInclude Include="Magus\Kr\KrRobotoMedium.h">
+    <ClInclude Include="Magus\RobotoMedium.h">
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="Magus\RenderBackend.h">
       <Filter>Header Files</Filter>
     </ClInclude>
-    <ClInclude Include="Magus\ResourceManager.h">
+    <ClInclude Include="Magus\ResourceLoaders\External\stb_image.h">
       <Filter>Header Files</Filter>
     </ClInclude>
-    <ClInclude Include="Magus\stb_image.h">
+    <ClInclude Include="Magus\Kr\KrIndex.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="Magus\Kr\KrFormat.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="Magus\Kr\KrLog.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="Magus\Kr\KrMapFormat.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="Magus\Kr\KrMathFormat.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="Magus\Kr\KrPrint.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="Magus\Kr\KrThreadContext.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="Magus\Kr\KrTypeTraits.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="Magus\ResourceLoaders\Loaders.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="Magus\ResourceLoaders\Image.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="Magus\ResourceLoaders\TrueType.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="Magus\ResourceLoaders\RectPack.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="Magus\RenderFont.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="Magus\Render2dBackend.h">
       <Filter>Header Files</Filter>
     </ClInclude>
   </ItemGroup>
@@ -110,5 +170,6 @@
     <None Include="Magus\Kr\LICENSE" />
     <None Include="Magus\Kr\README.md" />
     <None Include="Resources\Shaders\HLSL\Quad.shader" />
+    <None Include="Magus\Kr\KrConfig.in" />
   </ItemGroup>
 </Project>
