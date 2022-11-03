@@ -415,10 +415,10 @@ struct Actor {
 struct Hex_Tile {
 	Vec3i   pos;
 
-	bool has_dir = false;
-	Hex_Dir dir;
+	//bool has_dir = false;
+	//Hex_Dir dir;
 
-	Actor *actor = nullptr;
+	//Actor *actor = nullptr;
 };
 
 struct Hex_Map {
@@ -743,10 +743,11 @@ int Main(int argc, char **argv) {
 
 	// fill the tiles with the information
 
-	Hex_Tile *tile = HexFindOrDefaultTile(map, actor.pos);
-	tile->actor = &actor;
+	//Hex_Tile *tile = HexFindOrDefaultTile(map, actor.pos);
+	//tile->actor = &actor;
 
-	{
+	/*{
+		Hex_Tile* tile = nullptr;
 		Vec3i p = force_field.pos;
 		for (ptrdiff_t i = 0; i < force_field.direction.count; ++i) {
 			tile = HexFindOrDefaultTile(map, p);
@@ -754,7 +755,7 @@ int Main(int argc, char **argv) {
 			tile->dir = force_field.direction[i];
 			p = HexNeighbor(p, force_field.direction[i]);
 		}
-	}
+	}*/
 
 #if 0
 	Hex_Tile *tile;
@@ -895,6 +896,26 @@ int Main(int argc, char **argv) {
 
 		Hex_Tile *actor_tile_info = HexFindTile(map, actor.pos);
 
+		Vec3i force_pos = force_field.pos;
+		for (ptrdiff_t i = 0; i < force_field.direction.count; ++i) {
+			Vec3i neighbor = HexNeighbor(force_pos, force_field.direction[i]);
+
+			if (actor.pos == force_pos) {
+				if (actor.target_pos.count) {
+					if (Last(actor.target_pos) != neighbor)
+						Append(&actor.target_pos, neighbor);
+				}
+				else {
+					Append(&actor.target_pos, neighbor);
+				}
+
+				break;
+			}
+
+			force_pos = neighbor;
+		}
+
+		/*
 		if (actor_tile_info) {
 			if (actor_tile_info->has_dir) {
 				Vec3i neighbor = HexNeighbor(actor_tile_info->pos, actor_tile_info->dir);
@@ -906,6 +927,7 @@ int Main(int argc, char **argv) {
 				}
 			}
 		}
+		*/
 
 #if 0
 		static int update_counter = 0;
@@ -959,6 +981,7 @@ int Main(int argc, char **argv) {
 		}
 
 		R_PushTexture(renderer, GetResource(arrow_head));
+		/*
 		for (int y = -50; y < 50; ++y) {
 			for (int x = -50; x < 50; ++x) {
 				Hex_Tile *tile = HexFindTile(map, Hex(x, y));
@@ -971,7 +994,7 @@ int Main(int argc, char **argv) {
 				}
 			}
 		}
-		/*
+		*/
 		Vec3i current_pos = force_field.pos;
 		for (ptrdiff_t i = 0; i < force_field.direction.count; ++i) {
 			Vec2 p = HexToPixel(current_pos, Vec2(0), Vec2(HexRadius), HexKindCurrent);
@@ -979,7 +1002,6 @@ int Main(int argc, char **argv) {
 			R_DrawRectCenteredRotated(renderer, p, Vec2(0.5f), DegToRad(angle), Vec4(1, 1, 0, 1));
 			current_pos = HexNeighbor(current_pos, force_field.direction[i]);
 		}
-		*/
 		R_PopTexture(renderer);
 
 
