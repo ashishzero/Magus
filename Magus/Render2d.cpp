@@ -598,7 +598,7 @@ void R_PopTexture(R_Renderer2d *r2) {
 
 void R_SetRect(R_Renderer2d *r2, R_Rect rect) {
 	R_Rect prev_rect = r2->rect[r2->rect.count - 1];
-	if (memcmp(&prev_rect, &rect, sizeof(rect)) == 0 && r2->write_command->index_count)
+	if (memcmp(&prev_rect, &rect, sizeof(rect)) != 0 && r2->write_command->index_count)
 		R_PushDrawCommand(r2);
 	r2->rect[r2->rect.count - 1] = rect;
 	r2->write_command->rect      = rect;
@@ -617,7 +617,7 @@ void R_PopRect(R_Renderer2d *r2) {
 
 void R_SetTransform(R_Renderer2d *r2, const Mat4 &transform) {
 	const Mat4 *prev = &r2->transform[r2->transform.count - 1];
-	if (memcmp(prev, &transform, sizeof(transform)) == 0 && r2->write_command->index_count)
+	if (memcmp(prev, &transform, sizeof(transform)) != 0 && r2->write_command->index_count)
 		R_PushDrawCommand(r2);
 	r2->transform[r2->transform.count - 1] = transform;
 	r2->write_command->transform           = transform;

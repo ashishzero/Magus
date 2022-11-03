@@ -5,6 +5,7 @@
 #include "Kr/KrLog.h"
 #include "Kr/KrMap.h"
 #include "Kr/KrMathFormat.h"
+#include "Kr/KrString.h"
 
 #include "Render2d.h"
 #include "RenderBackend.h"
@@ -312,6 +313,11 @@ Vec3i HexNeighbor(Vec3i h, int dir) {
 	return h + HexDirection(dir);
 }
 
+Vec3 HexNeighbor(Vec3 h, int dir) {
+	Vec3i offset = HexDirection(dir);
+	return h + Vec3(offset.x, offset.y, offset.z);
+}
+
 enum Hex_Kind {
 	HEX_POINTY_TOP,
 	HEX_FLAT_TOP
@@ -384,6 +390,14 @@ void HexCorners(Vec3i h, Vec2 origin, Vec2 scale, Hex_Kind kind, Vec2 corners[6]
 	}
 }
 
+void HexCorners(Vec3 h, Vec2 origin, Vec2 scale, Hex_Kind kind, Vec2 corners[6]) {
+	Vec2 center = HexToPixel(h, origin, scale, kind);
+	for (int i = 0; i < 6; i++) {
+		Vec2 offset = HexCornerOffset(i, scale, kind);
+		corners[i] = center + offset;
+	}
+}
+
 Vec3i Hex(int32_t q, int32_t r, int32_t s) {
 	Assert(q + r + s == 0);
 	return Vec3i(q, r, s);
@@ -404,6 +418,14 @@ struct Force_Field {
 	Vec3i pos;
 
 	Array<Hex_Dir> direction;
+};
+
+struct Rotor {
+	Vec3i   pos;
+	int     length;
+	float   render_angle;
+	Hex_Dir dir;
+	Hex_Dir target_dir;
 };
 
 struct Actor {
@@ -684,6 +706,15 @@ void DrawHexagon(R_Renderer2d *renderer, Vec3i pos, Vec4 color = Vec4(1), bool o
 		R_DrawPolygon(renderer, corners, 6, color);
 }
 
+void DrawHexagon(R_Renderer2d* renderer, Vec3 pos, Vec4 color = Vec4(1), bool outline = true) {
+	Vec2 corners[6];
+	HexCorners(pos, Vec2(0.0f), Vec2(HexRadius), HexKindCurrent, corners);
+	if (outline)
+		R_DrawPolygonOutline(renderer, corners, 6, color);
+	else
+		R_DrawPolygon(renderer, corners, 6, color);
+}
+
 int Main(int argc, char **argv) {
 	PL_ThreadCharacteristics(PL_THREAD_GAMES);
 
@@ -740,6 +771,13 @@ int Main(int argc, char **argv) {
 	Actor actor;
 	actor.pos = Vec3i(0, 3, -3);
 	actor.render_pos = Vec3(actor.pos.x, actor.pos.y, actor.pos.z);
+
+	Rotor rotor;
+	rotor.pos = Vec3i(-2, -2, 4);
+	rotor.dir = HEX_DIR_R;
+	rotor.target_dir = rotor.dir;
+	rotor.length = 3;
+	rotor.render_angle = rotor.dir * -60.0f;
 
 	// fill the tiles with the information
 
@@ -819,6 +857,14 @@ int Main(int argc, char **argv) {
 				break;
 			}
 
+			if (e.kind == PL_EVENT_TEXT_INPUT) {
+				uint8_t buffer[4];
+				int len = CodepointToUTF8(e.text.codepoint, buffer);
+				buffer[len] = 0;
+
+				LogWarning("Text input: %", (char *)buffer);
+			}
+
 			if (e.kind == PL_EVENT_CURSOR) {
 				cursor_pos.x = (float)e.cursor.x;
 				cursor_pos.y = (float)e.cursor.y;
@@ -894,7 +940,28 @@ int Main(int argc, char **argv) {
 			}
 		}
 
-		Hex_Tile *actor_tile_info = HexFindTile(map, actor.pos);
+		{
+			float render_angle = rotor.render_angle;
+			float target_angle = rotor.target_dir * -60.0f;
+
+			float offset_angle = 0.0f;
+			float diff = target_angle - render_angle;
+			if (Absolute(diff) > 180.0f) {
+				offset_angle = -Sgn(diff) * 360.0f;
+			}
+
+			rotor.render_angle = MoveTowards(render_angle, target_angle + offset_angle, 1.f);
+
+			if (IsNull(render_angle - (target_angle + offset_angle))) {
+				rotor.dir = rotor.target_dir;
+				rotor.render_angle = rotor.dir * -60.0f;
+				//rotor.target_dir = (Hex_Dir)((rotor.target_dir + 1) % 6);
+				if (rotor.target_dir)
+					rotor.target_dir = (Hex_Dir)(rotor.target_dir - 1);
+				else
+					rotor.target_dir = (Hex_Dir)5;
+			}
+		}
 
 		Vec3i force_pos = force_field.pos;
 		for (ptrdiff_t i = 0; i < force_field.direction.count; ++i) {
@@ -962,7 +1029,9 @@ int Main(int argc, char **argv) {
 		R_DrawText(renderer, Vec2(0.0f, height - 25.0f), Vec4(1), text);
 		//R_DrawText(renderer, Vec2(0.0f, height - 50.0f), Vec4(1), HexDirNames[direction]);
 		R_DrawText(renderer, Vec2(0.0f, height - 50.0f), Vec4(1), TmpFormat("%", hex));
-		R_DrawText(renderer, Vec2(0.0f, height - 75.0f), Vec4(1), TmpFormat("%", actor.target_pos.count));
+		R_DrawText(renderer, Vec2(0.0f, height - 75.0f), Vec4(1), TmpFormat("Dir %", HexDirNames[rotor.dir]));
+		R_DrawText(renderer, Vec2(0.0f, height - 100.0f), Vec4(1), TmpFormat("Target %", HexDirNames[rotor.target_dir]));
+		R_DrawText(renderer, Vec2(0.0f, height - 125.0f), Vec4(1), TmpFormat("Angle %", rotor.render_angle));
 
 		/////////////////////////////////////////////////////////////////////////////
 
@@ -1022,6 +1091,22 @@ int Main(int argc, char **argv) {
 		Vec2 pos = HexToPixel(actor.render_pos, Vec2(0), Vec2(HexRadius), HexKindCurrent);
 
 		R_DrawCircleOutline(renderer, pos, 0.40f, Vec4(1, 0, 0, 1));
+
+		pos = HexToPixel(rotor.pos, Vec2(0), Vec2(HexRadius), HexKindCurrent);
+		R_DrawCircleOutline(renderer, pos, 0.40f, Vec4(0, 1, 1, 1));
+
+		R_SetLineThickness(renderer, 3.0f * cam_height / height);
+
+		Mat4 transform = Translation(Vec3(pos, 0)) * RotationZ(DegToRad(rotor.render_angle)) * Translation(Vec3(-pos, 0));
+		R_PushTransform(renderer, transform);
+
+		Vec3 render_pos = Vec3(rotor.pos.x, rotor.pos.y, rotor.pos.z);
+		for (int i = 0; i < rotor.length - 1; ++i) {
+			render_pos = HexNeighbor(render_pos, HEX_DIR_R);
+			DrawHexagon(renderer, render_pos, Vec4(0, 1, 1, 1));
+		}
+
+		R_PopTransform(renderer);
 
 		//for (Vec3i pos : path) {
 		//	Vec2 ppos = HexToPixel(pos, Vec2(0), Vec2(HexRadius), HexKindCurrent);
