@@ -407,7 +407,8 @@ struct Force_Field {
 };
 
 struct Actor {
-	Vec3         pos;
+	Vec3         render_pos;
+	Vec3i        pos;
 	Array<Vec3i> target_pos;
 };
 
@@ -737,11 +738,12 @@ int Main(int argc, char **argv) {
 	Append(&force_field.direction, HEX_DIR_L);
 
 	Actor actor;
-	actor.pos = Vec3(0, 3, -3);
+	actor.pos = Vec3i(0, 3, -3);
+	actor.render_pos = Vec3(actor.pos.x, actor.pos.y, actor.pos.z);
 
 	// fill the tiles with the information
 
-	Hex_Tile *tile = HexFindOrDefaultTile(map, HexRound(actor.pos));
+	Hex_Tile *tile = HexFindOrDefaultTile(map, actor.pos);
 	tile->actor = &actor;
 
 	{
@@ -882,15 +884,16 @@ int Main(int argc, char **argv) {
 			Vec3i t_posi = First(actor.target_pos);
 			Vec3 t_pos   = Vec3((float)t_posi.x, (float)t_posi.y, (float)t_posi.z);
 
-			actor.pos = MoveTowards(actor.pos, t_pos, 0.1f);
+			actor.render_pos = MoveTowards(actor.render_pos, t_pos, 0.1f);
 
-			if (IsNull(actor.pos - t_pos)) {
-				actor.pos = t_pos;
+			if (IsNull(actor.render_pos - t_pos)) {
+				actor.render_pos = t_pos;
+				actor.pos        = t_posi;
 				Remove(&actor.target_pos, 0);
 			}
 		}
 
-		Hex_Tile *actor_tile_info = HexFindTile(map, HexRound(actor.pos));
+		Hex_Tile *actor_tile_info = HexFindTile(map, actor.pos);
 
 		if (actor_tile_info) {
 			if (actor_tile_info->has_dir) {
@@ -994,9 +997,9 @@ int Main(int argc, char **argv) {
 
 		R_SetLineThickness(renderer, 5.0f * cam_height / height);
 
-		Vec2 actor_pos = HexToPixel(actor.pos, Vec2(0), Vec2(HexRadius), HexKindCurrent);
+		Vec2 pos = HexToPixel(actor.render_pos, Vec2(0), Vec2(HexRadius), HexKindCurrent);
 
-		R_DrawCircleOutline(renderer, actor_pos, 0.40f, Vec4(1, 0, 0, 1));
+		R_DrawCircleOutline(renderer, pos, 0.40f, Vec4(1, 0, 0, 1));
 
 		//for (Vec3i pos : path) {
 		//	Vec2 ppos = HexToPixel(pos, Vec2(0), Vec2(HexRadius), HexKindCurrent);
