@@ -259,6 +259,18 @@ void ReleaseResource(H_Pipeline pipeline) {
 	}
 }
 
+void ReleaseAll() {
+	for (ptrdiff_t index = 0; index < Manager.fonts.count; ++index) {
+		ReleaseResource(H_Font{ (uint32_t)index + 1 });
+	}
+	for (ptrdiff_t index = 0; index < Manager.textures.count; ++index) {
+		ReleaseResource(H_Texture{ (uint32_t)index + 1 });
+	}
+	for (ptrdiff_t index = 0; index < Manager.pipelines.count; ++index) {
+		ReleaseResource(H_Pipeline{ (uint32_t)index + 1 });
+	}
+}
+
 //
 //
 //
@@ -388,8 +400,16 @@ Vec3i Hex(int32_t q, int32_t r) {
 constexpr Hex_Kind HexKindCurrent = HEX_POINTY_TOP;
 const     float    HexRadius      = 0.5f;
 
-struct Hex_Tile {
+struct Force_Field {
 	Vec3i pos;
+
+	Array<Hex_Dir> direction;
+};
+
+struct Hex_Tile {
+	Vec3i   pos;
+	//bool    is_force = false;
+	//Hex_Dir force_dir;
 };
 
 struct Hex_Map {
@@ -403,8 +423,8 @@ Hex_Tile *HexFindTile(Hex_Map *map, Vec3i pos) {
 
 	if (IsInRange(0, 99, x) && IsInRange(0, 99, y)) {
 		ptrdiff_t index = map->index[y][x];
-		if (index >= 0) {
-			return &map->tiles[index];
+		if (index > 0) {
+			return &map->tiles[index - 1];
 		}
 	}
 
@@ -417,13 +437,13 @@ Hex_Tile *HexFindOrDefaultTile(Hex_Map *map, Vec3i pos) {
 
 	if (IsInRange(0, 99, x) && IsInRange(0, 99, y)) {
 		ptrdiff_t index = map->index[y][x];
-		if (index >= 0) return &map->tiles[index];
-		map->index[y][x] = map->tiles.count;
+		if (index > 0) return &map->tiles[index - 1];
 		Hex_Tile *tile = Append(&map->tiles);
 		if (tile) {
+			Assert(map->tiles.count);
 			tile->pos = pos;
-		} else {
-			map->index[y][x] = -1;
+			//tile->is_force = false;
+			map->index[y][x] = map->tiles.count;
 		}
 		return tile;
 	}
@@ -434,16 +454,17 @@ Hex_Tile *HexFindOrDefaultTile(Hex_Map *map, Vec3i pos) {
 void HexRemoveTile(Hex_Map *map, Vec3i pos) {
 	Hex_Tile *tile = HexFindTile(map, pos);
 	if (tile) {
-		int32_t x = tile->pos.x;
-		int32_t y = tile->pos.y;
+		int32_t x = tile->pos.x + 50;
+		int32_t y = tile->pos.y + 50;
 
 		ptrdiff_t index  = map->index[y][x];
-		map->index[y][x] = -1;
+		Assert(index > 0);
+		map->index[y][x] = 0;
 
-		RemoveUnordered(&map->tiles, index);
-		Vec3i new_pos = map->tiles[index].pos;
+		RemoveUnordered(&map->tiles, index - 1);
+		Vec3i new_pos = map->tiles[index - 1].pos;
 
-		map->index[new_pos.y][new_pos.x] = index;
+		map->index[new_pos.y + 50][new_pos.x + 50] = index;
 	}
 }
 
@@ -683,7 +704,7 @@ int Main(int argc, char **argv) {
 
 	for (int i = 0; i < 100; ++i) {
 		for (int j = 0; j < 100; ++j) {
-			map->index[i][j] = -1;
+			map->index[i][j] = 0;
 		}
 	}
 
@@ -695,7 +716,55 @@ int Main(int argc, char **argv) {
 		}
 	}
 
-	int direction = 0;
+	Force_Field force_field;
+
+	force_field.pos = Hex(0, 3, -3);
+	Append(&force_field.direction, HEX_DIR_TR);
+	Append(&force_field.direction, HEX_DIR_TR);
+	Append(&force_field.direction, HEX_DIR_R);
+	Append(&force_field.direction, HEX_DIR_R);
+	Append(&force_field.direction, HEX_DIR_BL);
+	Append(&force_field.direction, HEX_DIR_BL);
+	Append(&force_field.direction, HEX_DIR_L);
+	Append(&force_field.direction, HEX_DIR_L);
+
+#if 0
+	Hex_Tile *tile;
+	tile = HexFindOrDefaultTile(map, Hex(0, 3, -3));
+	tile->is_force = true;
+	tile->force_dir = HEX_DIR_TR;
+
+	tile = HexFindOrDefaultTile(map, Hex(0, 4, -4));
+	tile->is_force = true;
+	tile->force_dir = HEX_DIR_TR;
+
+	tile = HexFindOrDefaultTile(map, Hex(0, 5, -5));
+	tile->is_force = true;
+	tile->force_dir = HEX_DIR_R;
+
+	tile = HexFindOrDefaultTile(map, Hex(1, 5, -6));
+	tile->is_force = true;
+	tile->force_dir = HEX_DIR_R;
+
+	tile = HexFindOrDefaultTile(map, Hex(2, 5, -7));
+	tile->is_force = true;
+	tile->force_dir = HEX_DIR_BL;
+
+	tile = HexFindOrDefaultTile(map, Hex(2, 4, -6));
+	tile->is_force = true;
+	tile->force_dir = HEX_DIR_BL;
+
+	tile = HexFindOrDefaultTile(map, Hex(2, 3, -5));
+	tile->is_force = true;
+	tile->force_dir = HEX_DIR_L;
+
+	tile = HexFindOrDefaultTile(map, Hex(1, 3, -4));
+	tile->is_force = true;
+	tile->force_dir = HEX_DIR_L;
+#endif
+
+
+	//int direction = 0;
 
 	Vec3 pos = Vec3(0, 0, 0);
 	Array<Vec3i> target_pos;
@@ -747,10 +816,10 @@ int Main(int argc, char **argv) {
 				}
 			}
 
-			if (e.kind == PL_EVENT_KEY_PRESSED) {
-				if (e.key.id == PL_KEY_SPACE && !e.key.repeat)
-					direction = (direction + 1) % ArrayCount(HexDirNames);
-			}
+			//if (e.kind == PL_EVENT_KEY_PRESSED) {
+			//	if (e.key.id == PL_KEY_SPACE && !e.key.repeat)
+			//		direction = (direction + 1) % ArrayCount(HexDirNames);
+			//}
 
 			if (e.kind == PL_EVENT_RESIZE) {
 				R_Flush(queue);
@@ -801,7 +870,8 @@ int Main(int argc, char **argv) {
 
 		String text = TmpFormat("%ms % FPS", frame_time, (int)(1000.0f / frame_time));
 		R_DrawText(renderer, Vec2(0.0f, height - 25.0f), Vec4(1), text);
-		R_DrawText(renderer, Vec2(0.0f, height - 50.0f), Vec4(1), HexDirNames[direction]);
+		//R_DrawText(renderer, Vec2(0.0f, height - 50.0f), Vec4(1), HexDirNames[direction]);
+		R_DrawText(renderer, Vec2(0.0f, height - 50.0f), Vec4(1), TmpFormat("%", hex));
 
 		/////////////////////////////////////////////////////////////////////////////
 
@@ -818,6 +888,28 @@ int Main(int argc, char **argv) {
 				}
 			}
 		}
+
+		R_PushTexture(renderer, GetResource(arrow_head));
+		/*for (int y = -50; y < 50; ++y) {
+			for (int x = -50; x < 50; ++x) {
+				Hex_Tile *tile = HexFindTile(map, Hex(x, y));
+				if (!tile) continue;
+
+				if (tile->is_force) {
+					float angle = DegToRad(tile->force_dir * -60.0f);
+					Vec2 fpos   = HexToPixel(Hex(x, y), Vec2(0), Vec2(HexRadius), HexKindCurrent);
+					R_DrawRectCenteredRotated(renderer, fpos, Vec2(0.5f), angle, Vec4(1, 1, 0, 1));
+				}
+			}
+		}*/
+		Vec3i current_pos = force_field.pos;
+		for (ptrdiff_t i = 0; i < force_field.direction.count; ++i) {
+			Vec2 p = HexToPixel(current_pos, Vec2(0), Vec2(HexRadius), HexKindCurrent);
+			float angle = force_field.direction[i] * -60.0f;
+			R_DrawRectCenteredRotated(renderer, p, Vec2(0.5f), DegToRad(angle), Vec4(1, 1, 0, 1));
+			current_pos = HexNeighbor(current_pos, force_field.direction[i]);
+		}
+		R_PopTexture(renderer);
 
 		for (auto p : target_pos) {
 			DrawHexagon(renderer, p, Vec4(1, 1, 0, 1));
@@ -841,16 +933,16 @@ int Main(int argc, char **argv) {
 		//R_PathTo(renderer, HexToPixel(pos, Vec2(0), Vec2(HexRadius), HexKindCurrent));
 		//R_DrawPathStroked(renderer, Vec4(0, 1, 1, 1));
 
-		hex = HexNeighbor(Vec3i(0), direction);
-		DrawHexagon(renderer, hex, Vec4(1, 0, 0, 1));
+		//hex = HexNeighbor(Vec3i(0), direction);
+		//DrawHexagon(renderer, hex, Vec4(1, 0, 0, 1));
 
-		float angle = DegToRad(-direction * 60.0f);
+		//float angle = DegToRad(-direction * 60.0f);
 
-		Vec2 fpos = HexToPixel(hex, Vec2(0), Vec2(HexRadius), HexKindCurrent);
+		//Vec2 fpos = HexToPixel(hex, Vec2(0), Vec2(HexRadius), HexKindCurrent);
 
-		R_PushTexture(renderer, GetResource(arrow_head));
-		R_DrawRectCenteredRotated(renderer, fpos, Vec2(0.5f), angle, Vec4(1, 1, 0, 1));
-		R_PopTexture(renderer);
+		//R_PushTexture(renderer, GetResource(arrow_head));
+		//R_DrawRectCenteredRotated(renderer, fpos, Vec2(0.5f), angle, Vec4(1, 1, 0, 1));
+		//R_PopTexture(renderer);
 
 		R_Viewport viewport;
 		viewport.y = viewport.x = 0;
@@ -881,10 +973,8 @@ int Main(int argc, char **argv) {
 		frame_time = 1000.0f * (float)counts / frequency;
 	}
 
-	ReleaseResource(pipeline);
-	ReleaseResource(arrow_head);
-
 	R_Flush(queue);
+	ReleaseAll();
 
 	R_DestroyRenderList(render_list);
 	R_DestroySwapChain(device, swap_chain);
