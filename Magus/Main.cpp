@@ -414,24 +414,24 @@ Vec3i Hex(int32_t q, int32_t r) {
 constexpr Hex_Kind HexKindCurrent = HEX_POINTY_TOP;
 const     float    HexRadius      = 0.5f;
 
-struct Force_Field {
-	Vec3i pos;
+struct Entity {
+	Vec3i position;
+	Vec3  render_position;
+	Array<Vec3i> target_positions;
+};
 
+struct Force_Field : Entity {
 	Array<Hex_Dir> direction;
 };
 
-struct Rotor {
-	Vec3i   pos;
+struct Rotor : Entity {
 	int     length;
 	float   render_angle;
 	Hex_Dir dir;
 	Hex_Dir target_dir;
 };
 
-struct Actor {
-	Vec3         render_pos;
-	Vec3i        pos;
-	Array<Vec3i> target_pos;
+struct Actor : Entity {
 };
 
 struct Hex_Tile {
@@ -715,6 +715,10 @@ void DrawHexagon(R_Renderer2d* renderer, Vec3 pos, Vec4 color = Vec4(1), bool ou
 		R_DrawPolygon(renderer, corners, 6, color);
 }
 
+Vec3 Vec3iF(Vec3i v) {
+	return Vec3(v.x, v.y, v.z);
+}
+
 int Main(int argc, char **argv) {
 	PL_ThreadCharacteristics(PL_THREAD_GAMES);
 
@@ -758,7 +762,8 @@ int Main(int argc, char **argv) {
 
 	Force_Field force_field;
 
-	force_field.pos = Hex(0, 3, -3);
+	force_field.position = Hex(0, 0, 0);
+	force_field.render_position = Vec3iF(force_field.position);
 	Append(&force_field.direction, HEX_DIR_TR);
 	Append(&force_field.direction, HEX_DIR_TR);
 	Append(&force_field.direction, HEX_DIR_R);
@@ -769,14 +774,15 @@ int Main(int argc, char **argv) {
 	Append(&force_field.direction, HEX_DIR_L);
 
 	Actor actor;
-	actor.pos = Vec3i(0, 3, -3);
-	actor.render_pos = Vec3(actor.pos.x, actor.pos.y, actor.pos.z);
+	actor.position = Vec3i(0, 2, -2);
+	actor.render_position = Vec3iF(actor.position);
 
 	Rotor rotor;
-	rotor.pos = Vec3i(-2, -2, 4);
-	rotor.dir = HEX_DIR_R;
+	rotor.position = Vec3i(0, 0, 0);
+	rotor.render_position = Vec3iF(rotor.position);
+	rotor.dir = HEX_DIR_TR;
 	rotor.target_dir = rotor.dir;
-	rotor.length = 3;
+	rotor.length = 4;
 	rotor.render_angle = rotor.dir * -60.0f;
 
 	// fill the tiles with the information
@@ -927,16 +933,20 @@ int Main(int argc, char **argv) {
 		//	}
 		//}
 
-		if (actor.target_pos.count) {
-			Vec3i t_posi = First(actor.target_pos);
-			Vec3 t_pos   = Vec3((float)t_posi.x, (float)t_posi.y, (float)t_posi.z);
+		Entity* entities[] = { &actor, &rotor, &force_field };
 
-			actor.render_pos = MoveTowards(actor.render_pos, t_pos, 0.1f);
+		for (Entity* entity : entities) {
+			if (entity->target_positions.count) {
+				Vec3i t_posi = First(entity->target_positions);
+				Vec3 t_pos   = Vec3iF(t_posi);
 
-			if (IsNull(actor.render_pos - t_pos)) {
-				actor.render_pos = t_pos;
-				actor.pos        = t_posi;
-				Remove(&actor.target_pos, 0);
+				entity->render_position = MoveTowards(entity->render_position, t_pos, 0.08f);
+
+				if (IsNull(entity->render_position - t_pos)) {
+					entity->render_position = t_pos;
+					entity->position = t_posi;
+					Remove(&entity->target_positions, 0); // todo: optimize
+				}
 			}
 		}
 
@@ -963,23 +973,27 @@ int Main(int argc, char **argv) {
 			}
 		}
 
-		Vec3i force_pos = force_field.pos;
-		for (ptrdiff_t i = 0; i < force_field.direction.count; ++i) {
-			Vec3i neighbor = HexNeighbor(force_pos, force_field.direction[i]);
+		for (Entity* entity : entities) {
+			if (entity == &force_field) continue;
 
-			if (actor.pos == force_pos) {
-				if (actor.target_pos.count) {
-					if (Last(actor.target_pos) != neighbor)
-						Append(&actor.target_pos, neighbor);
-				}
-				else {
-					Append(&actor.target_pos, neighbor);
+			Vec3i force_pos = force_field.position;
+			for (ptrdiff_t i = 0; i < force_field.direction.count; ++i) {
+				Vec3i neighbor = HexNeighbor(force_pos, force_field.direction[i]);
+
+				if (entity->position == force_pos) {
+					if (entity->target_positions.count) {
+						if (Last(entity->target_positions) != neighbor)
+							Append(&entity->target_positions, neighbor);
+					}
+					else {
+						Append(&entity->target_positions, neighbor);
+					}
+
+					break;
 				}
 
-				break;
+				force_pos = neighbor;
 			}
-
-			force_pos = neighbor;
 		}
 
 		/*
@@ -1049,22 +1063,9 @@ int Main(int argc, char **argv) {
 			}
 		}
 
+		// todo: use render position
 		R_PushTexture(renderer, GetResource(arrow_head));
-		/*
-		for (int y = -50; y < 50; ++y) {
-			for (int x = -50; x < 50; ++x) {
-				Hex_Tile *tile = HexFindTile(map, Hex(x, y));
-				if (!tile) continue;
-
-				if (tile->has_dir) {
-					float angle = DegToRad(tile->dir * -60.0f);
-					Vec2 fpos   = HexToPixel(Hex(x, y), Vec2(0), Vec2(HexRadius), HexKindCurrent);
-					R_DrawRectCenteredRotated(renderer, fpos, Vec2(0.5f), angle, Vec4(1, 1, 0, 1));
-				}
-			}
-		}
-		*/
-		Vec3i current_pos = force_field.pos;
+		Vec3i current_pos = force_field.position;
 		for (ptrdiff_t i = 0; i < force_field.direction.count; ++i) {
 			Vec2 p = HexToPixel(current_pos, Vec2(0), Vec2(HexRadius), HexKindCurrent);
 			float angle = force_field.direction[i] * -60.0f;
@@ -1088,11 +1089,11 @@ int Main(int argc, char **argv) {
 
 		R_SetLineThickness(renderer, 5.0f * cam_height / height);
 
-		Vec2 pos = HexToPixel(actor.render_pos, Vec2(0), Vec2(HexRadius), HexKindCurrent);
+		Vec2 pos = HexToPixel(actor.render_position, Vec2(0), Vec2(HexRadius), HexKindCurrent);
 
 		R_DrawCircleOutline(renderer, pos, 0.40f, Vec4(1, 0, 0, 1));
 
-		pos = HexToPixel(rotor.pos, Vec2(0), Vec2(HexRadius), HexKindCurrent);
+		pos = HexToPixel(rotor.render_position, Vec2(0), Vec2(HexRadius), HexKindCurrent);
 		R_DrawCircleOutline(renderer, pos, 0.40f, Vec4(0, 1, 1, 1));
 
 		R_SetLineThickness(renderer, 3.0f * cam_height / height);
@@ -1100,7 +1101,7 @@ int Main(int argc, char **argv) {
 		Mat4 transform = Translation(Vec3(pos, 0)) * RotationZ(DegToRad(rotor.render_angle)) * Translation(Vec3(-pos, 0));
 		R_PushTransform(renderer, transform);
 
-		Vec3 render_pos = Vec3(rotor.pos.x, rotor.pos.y, rotor.pos.z);
+		Vec3 render_pos = rotor.render_position;
 		for (int i = 0; i < rotor.length - 1; ++i) {
 			render_pos = HexNeighbor(render_pos, HEX_DIR_R);
 			DrawHexagon(renderer, render_pos, Vec4(0, 1, 1, 1));
