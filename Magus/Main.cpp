@@ -315,7 +315,7 @@ Vec3i HexNeighbor(Vec3i h, int dir) {
 
 Vec3 HexNeighbor(Vec3 h, int dir) {
 	Vec3i offset = HexDirection(dir);
-	return h + Vec3(offset.x, offset.y, offset.z);
+	return h + Vec3((float)offset.x, (float)offset.y, (float)offset.z);
 }
 
 enum Hex_Kind {
@@ -716,7 +716,7 @@ void DrawHexagon(R_Renderer2d* renderer, Vec3 pos, Vec4 color = Vec4(1), bool ou
 }
 
 Vec3 Vec3iF(Vec3i v) {
-	return Vec3(v.x, v.y, v.z);
+	return Vec3((float)v.x, (float)v.y, (float)v.z);
 }
 
 int Main(int argc, char **argv) {
@@ -846,7 +846,7 @@ int Main(int argc, char **argv) {
 	bool move_pressed = false;
 
 	uint64_t counter = PL_GetPerformanceCounter();
-	float frequency  = PL_GetPerformanceFrequency();
+	float frequency  = (float)PL_GetPerformanceFrequency();
 	float frame_time = 0.0f;
 
 	bool running = true;
