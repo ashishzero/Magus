@@ -436,11 +436,6 @@ struct Actor : Entity {
 
 struct Hex_Tile {
 	Vec3i   pos;
-
-	//bool has_dir = false;
-	//Hex_Dir dir;
-
-	//Actor *actor = nullptr;
 };
 
 struct Hex_Map {
@@ -785,63 +780,6 @@ int Main(int argc, char **argv) {
 	rotor.length = 4;
 	rotor.render_angle = rotor.dir * -60.0f;
 
-	// fill the tiles with the information
-
-	//Hex_Tile *tile = HexFindOrDefaultTile(map, actor.pos);
-	//tile->actor = &actor;
-
-	/*{
-		Hex_Tile* tile = nullptr;
-		Vec3i p = force_field.pos;
-		for (ptrdiff_t i = 0; i < force_field.direction.count; ++i) {
-			tile = HexFindOrDefaultTile(map, p);
-			tile->has_dir = true;
-			tile->dir = force_field.direction[i];
-			p = HexNeighbor(p, force_field.direction[i]);
-		}
-	}*/
-
-#if 0
-	Hex_Tile *tile;
-	tile = HexFindOrDefaultTile(map, Hex(0, 3, -3));
-	tile->is_force = true;
-	tile->force_dir = HEX_DIR_TR;
-
-	tile = HexFindOrDefaultTile(map, Hex(0, 4, -4));
-	tile->is_force = true;
-	tile->force_dir = HEX_DIR_TR;
-
-	tile = HexFindOrDefaultTile(map, Hex(0, 5, -5));
-	tile->is_force = true;
-	tile->force_dir = HEX_DIR_R;
-
-	tile = HexFindOrDefaultTile(map, Hex(1, 5, -6));
-	tile->is_force = true;
-	tile->force_dir = HEX_DIR_R;
-
-	tile = HexFindOrDefaultTile(map, Hex(2, 5, -7));
-	tile->is_force = true;
-	tile->force_dir = HEX_DIR_BL;
-
-	tile = HexFindOrDefaultTile(map, Hex(2, 4, -6));
-	tile->is_force = true;
-	tile->force_dir = HEX_DIR_BL;
-
-	tile = HexFindOrDefaultTile(map, Hex(2, 3, -5));
-	tile->is_force = true;
-	tile->force_dir = HEX_DIR_L;
-
-	tile = HexFindOrDefaultTile(map, Hex(1, 3, -4));
-	tile->is_force = true;
-	tile->force_dir = HEX_DIR_L;
-#endif
-
-
-	//int direction = 0;
-
-	//Vec3 pos = Vec3(0, 0, 0);
-	//Array<Vec3i> target_pos;
-
 	Vec2 cursor_pos = Vec2(0);
 	bool move_pressed = false;
 
@@ -897,11 +835,6 @@ int Main(int argc, char **argv) {
 				}
 			}
 
-			//if (e.kind == PL_EVENT_KEY_PRESSED) {
-			//	if (e.key.id == PL_KEY_SPACE && !e.key.repeat)
-			//		direction = (direction + 1) % ArrayCount(HexDirNames);
-			//}
-
 			if (e.kind == PL_EVENT_RESIZE) {
 				R_Flush(queue);
 				R_ResizeRenderTargets(device, swap_chain, e.resize.w, e.resize.h);
@@ -922,16 +855,6 @@ int Main(int argc, char **argv) {
 		Vec3 hex_cursor = PixelToHex(cursor_cam_pos, Vec2(0), Vec2(HexRadius), HexKindCurrent);
 
 		Vec3i hex = HexRound(hex_cursor);
-
-		//auto path = FindPath(map, HexRound(pos), hex);
-		//Defer{ Free(&path); };
-
-		//if (move_pressed) {
-		//	if (HexFindTile(map, hex)) {
-		//		Reset(&target_pos);
-		//		Append(&target_pos, path);
-		//	}
-		//}
 
 		Entity* entities[] = { &actor, &rotor, &force_field };
 
@@ -973,7 +896,7 @@ int Main(int argc, char **argv) {
 			}
 		}
 
-		for (Entity* entity : entities) {
+		for (Entity *entity : entities) {
 			if (entity == &force_field) continue;
 
 			Vec3i force_pos = force_field.position;
@@ -995,44 +918,6 @@ int Main(int argc, char **argv) {
 				force_pos = neighbor;
 			}
 		}
-
-		/*
-		if (actor_tile_info) {
-			if (actor_tile_info->has_dir) {
-				Vec3i neighbor = HexNeighbor(actor_tile_info->pos, actor_tile_info->dir);
-				if (actor.target_pos.count) {
-					if (Last(actor.target_pos) != neighbor)
-						Append(&actor.target_pos, neighbor);
-				} else {
-					Append(&actor.target_pos, neighbor);
-				}
-			}
-		}
-		*/
-
-#if 0
-		static int update_counter = 0;
-
-		if (update_counter % 100 == 0) {
-			for (int y = -50; y < 50; ++y) {
-				for (int x = -50; x < 50; ++x) {
-					Hex_Tile *tile = HexFindTile(map, Hex(x, y));
-					if (!tile) continue;
-
-					if (tile->has_dir && tile->actor) {
-						Vec3i next_pos = HexNeighbor(tile->pos, tile->dir);
-						Hex_Tile *new_tile = HexFindTile(map, next_pos);
-
-						new_tile->actor = tile->actor;
-						tile->actor = nullptr;
-
-						Append(&new_tile->actor->target_pos, new_tile->pos);
-					}
-				}
-			}
-		}
-		update_counter += 1;
-#endif
 
 		R_NextFrame(renderer, R_Rect(0.0f, 0.0f, width, height));
 		R_SetPipeline(renderer, GetResource(pipeline));
@@ -1074,19 +959,6 @@ int Main(int argc, char **argv) {
 		}
 		R_PopTexture(renderer);
 
-
-		/*for (auto p : target_pos) {
-			DrawHexagon(renderer, p, Vec4(1, 1, 0, 1));
-		}
-
-		if (HexFindTile(map, hex))
-			DrawHexagon(renderer, hex, Vec4(0, 1, 1, 1));
-		else
-			DrawHexagon(renderer, hex, Vec4(1, 1, 0, 1));
-
-		Vec2 hex_pos = HexToPixel(pos, Vec2(0), Vec2(HexRadius), HexKindCurrent);
-		R_DrawCircle(renderer, hex_pos, 0.45f, Vec4(1));*/
-
 		R_SetLineThickness(renderer, 5.0f * cam_height / height);
 
 		Vec2 pos = HexToPixel(actor.render_position, Vec2(0), Vec2(HexRadius), HexKindCurrent);
@@ -1108,24 +980,6 @@ int Main(int argc, char **argv) {
 		}
 
 		R_PopTransform(renderer);
-
-		//for (Vec3i pos : path) {
-		//	Vec2 ppos = HexToPixel(pos, Vec2(0), Vec2(HexRadius), HexKindCurrent);
-		//	R_PathTo(renderer, ppos);
-		//}
-		//R_PathTo(renderer, HexToPixel(pos, Vec2(0), Vec2(HexRadius), HexKindCurrent));
-		//R_DrawPathStroked(renderer, Vec4(0, 1, 1, 1));
-
-		//hex = HexNeighbor(Vec3i(0), direction);
-		//DrawHexagon(renderer, hex, Vec4(1, 0, 0, 1));
-
-		//float angle = DegToRad(-direction * 60.0f);
-
-		//Vec2 fpos = HexToPixel(hex, Vec2(0), Vec2(HexRadius), HexKindCurrent);
-
-		//R_PushTexture(renderer, GetResource(arrow_head));
-		//R_DrawRectCenteredRotated(renderer, fpos, Vec2(0.5f), angle, Vec4(1, 1, 0, 1));
-		//R_PopTexture(renderer);
 
 		R_Viewport viewport;
 		viewport.y = viewport.x = 0;
