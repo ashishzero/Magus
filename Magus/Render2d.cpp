@@ -1437,6 +1437,42 @@ void R_DrawTexture(R_Renderer2d *r2, R_Texture *texture, Vec2 pos, Vec2 dim, Vec
 	R_PopTexture(r2);
 }
 
+void R_DrawTextureCentered(R_Renderer2d *r2, R_Texture *texture, Vec3 pos, Vec2 dim, Vec4 color) {
+	R_PushTexture(r2, texture);
+	R_DrawRectCentered(r2, pos, dim, color);
+	R_PopTexture(r2);
+}
+
+void R_DrawTextureCentered(R_Renderer2d *r2, R_Texture *texture, Vec2 pos, Vec2 dim, Vec4 color) {
+	R_PushTexture(r2, texture);
+	R_DrawRectCentered(r2, pos, dim, color);
+	R_PopTexture(r2);
+}
+
+void R_DrawTexturePart(R_Renderer2d *r2, R_Texture *texture, Vec3 pos, Vec2 dim, R_Rect rect, Vec4 color) {
+	R_PushTexture(r2, texture);
+	R_DrawRect(r2, pos, dim, rect, color);
+	R_PopTexture(r2);
+}
+
+void R_DrawTexture(R_Renderer2d *r2, R_Texture *texture, Vec2 pos, Vec2 dim, R_Rect rect, Vec4 color) {
+	R_PushTexture(r2, texture);
+	R_DrawRect(r2, pos, dim, rect, color);
+	R_PopTexture(r2);
+}
+
+void R_DrawTextureCentered(R_Renderer2d *r2, R_Texture *texture, Vec3 pos, Vec2 dim, R_Rect rect, Vec4 color) {
+	R_PushTexture(r2, texture);
+	R_DrawRectCentered(r2, pos, dim, rect, color);
+	R_PopTexture(r2);
+}
+
+void R_DrawTextureCentered(R_Renderer2d *r2, R_Texture *texture, Vec2 pos, Vec2 dim, R_Rect rect, Vec4 color) {
+	R_PushTexture(r2, texture);
+	R_DrawRectCentered(r2, pos, dim, rect, color);
+	R_PopTexture(r2);
+}
+
 void R_DrawRoundedRect(R_Renderer2d *r2, Vec3 pos, Vec2 dim, Vec4 color, float radius, int segments) {
 	if (radius) {
 		float rad_x = Min(radius, 0.5f * dim.x);

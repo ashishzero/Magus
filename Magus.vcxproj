@@ -104,6 +104,7 @@
     <ClCompile Include="Magus\Render2d.cpp" />
   </ItemGroup>
   <ItemGroup>
+    <ClInclude Include="Magus\Hex.h" />
     <ClInclude Include="Magus\Render2dBackend.h" />
     <ClInclude Include="Magus\RenderFont.h" />
     <ClInclude Include="Magus\Kr\KrFormat.h" />

@@ -278,6 +278,12 @@ void R_DrawPolygonOutline(R_Renderer2d *r2, const Vec2 *vertices, uint32_t count
 
 void R_DrawTexture(R_Renderer2d *r2, R_Texture *texture, Vec3 pos, Vec2 dim, Vec4 color = Vec4(1));
 void R_DrawTexture(R_Renderer2d *r2, R_Texture *texture, Vec2 pos, Vec2 dim, Vec4 color = Vec4(1));
+void R_DrawTextureCentered(R_Renderer2d *r2, R_Texture *texture, Vec3 pos, Vec2 dim, Vec4 color = Vec4(1));
+void R_DrawTextureCentered(R_Renderer2d *r2, R_Texture *texture, Vec2 pos, Vec2 dim, Vec4 color = Vec4(1));
+void R_DrawTexture(R_Renderer2d *r2, R_Texture *texture, Vec3 pos, Vec2 dim, R_Rect rect, Vec4 color = Vec4(1));
+void R_DrawTexture(R_Renderer2d *r2, R_Texture *texture, Vec2 pos, Vec2 dim, R_Rect rect, Vec4 color = Vec4(1));
+void R_DrawTextureCentered(R_Renderer2d *r2, R_Texture *texture, Vec3 pos, Vec2 dim, R_Rect rect, Vec4 color = Vec4(1));
+void R_DrawTextureCentered(R_Renderer2d *r2, R_Texture *texture, Vec2 pos, Vec2 dim, R_Rect rect, Vec4 color = Vec4(1));
 
 void R_DrawRoundedRect(R_Renderer2d *r2, Vec3 pos, Vec2 dim, Vec4 color, float radius = 1.0f, int segments = DEFAULT_CIRCLE_SEGMENTS);
 void R_DrawRoundedRect(R_Renderer2d *r2, Vec2 pos, Vec2 dim, Vec4 color, float radius = 1.0f, int segments = DEFAULT_CIRCLE_SEGMENTS);

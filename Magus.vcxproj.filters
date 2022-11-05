@@ -161,6 +161,9 @@
     <ClInclude Include="Magus\Render2dBackend.h">
       <Filter>Header Files</Filter>
     </ClInclude>
+    <ClInclude Include="Magus\Hex.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
   </ItemGroup>
   <ItemGroup>
     <Natvis Include="Magus\Kr\KrVisualizer.natvis" />
