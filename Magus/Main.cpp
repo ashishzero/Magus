@@ -413,17 +413,15 @@ int Main(int argc, char **argv) {
 
 		R_DrawRectCenteredOutline(renderer, Vec2(cursor_x, cursor_y), Vec2(1), val ? Vec4(1, 1, 0, 1) : Vec4(1, 0, 0, 1));
 
+		static int frame_counter = 0;
 		static int frame_index = 0;
 
-		frame_index = (frame_index + 1) % (80);
+		frame_counter += 1;
 
-		int frame_x = frame_index % 8;
-		int frame_y = frame_index / 8;
+		if (frame_counter % 5 == 0)
+			frame_index = (frame_index + 1) % 8;
 
-		Assert(frame_x >= 0 && frame_x < 8);
-		Assert(frame_y >= 0 && frame_y < 10);
-
-		Vec2 frame_pos = Vec2((float)frame_x, (float)frame_y);
+		Vec2 frame_pos = Vec2((float)frame_index, 3.0f);
 
 		R_Rect rect;
 		rect.min = Vec2(0.125f, 0.1f) * frame_pos;
@@ -432,6 +430,15 @@ int Main(int argc, char **argv) {
 		Vec2 render_offset = Vec2(0, .25f);
 
 		R_DrawTextureCentered(renderer, GetResource(dance), position + render_offset, Vec2(88, 128) / 88.0f, rect);
+
+		static int walk_index = 0;
+
+		walk_index = (walk_index + 1) % 10;
+
+		frame_pos = Vec2(0);
+		rect.min  = Vec2(0.2f, 0.5f) * frame_pos;
+		rect.max  = Vec2(0.2f, 0.5f) + rect.min;
+		R_DrawTextureCentered(renderer, GetResource(walk), Vec2(0) + render_offset, Vec2(0.72f, 1.8f), rect);
 
 		//R_DrawRectCentered(renderer, position, Vec2(0.1f), Vec4(1, 0, 0, 1));
 		//R_DrawCircle(renderer, Vec2(0), 0.1f, Vec4(1, 0, 0, 1));
