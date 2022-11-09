@@ -6,6 +6,7 @@
 #include "Kr/KrMap.h"
 #include "Kr/KrMathFormat.h"
 #include "Kr/KrString.h"
+#include "Kr/KrRandom.h"
 
 #include "Render2d.h"
 #include "RenderBackend.h"
@@ -276,6 +277,7 @@ void ReleaseAll() {
 //
 //
 
+#if 0
 int GridMap[100][100];
 
 int GetGrid(int x, int y) {
@@ -298,6 +300,268 @@ void SetGrid(int x, int y) {
 	}
 }
 
+void ClearGrid(int x, int y) {
+	x = x + 50;
+	y = y + 50;
+
+	if (IsInRange(0, 99, x) && IsInRange(0, 99, y)) {
+		GridMap[y][x] = 0;
+	}
+}
+#endif
+
+struct Animation_Frame {
+	Rect     rect;
+	uint32_t time;
+};
+
+struct Animation_Properties {
+	bool repeat;
+};
+
+struct Animation {
+	H_Texture            texture;
+
+	Animation_Properties properties;
+
+	uint32_t             time;
+	uint32_t             current;
+	uint32_t             count;
+	Animation_Frame *    frames;
+};
+
+Animation LoadDanceAnimation() {
+	Animation animation;
+
+	animation.texture = LoadTexture("Dance.bmp");
+	animation.time    = 0;
+	animation.current = 0;
+
+	animation.properties.repeat = true;
+
+	animation.count   = 80;
+	animation.frames  = new Animation_Frame[animation.count];
+
+	for (uint32_t i = 0; i < animation.count; ++i) {
+		auto frame  = &animation.frames[i];
+
+		float x = (float)(i % 8);
+		float y = (float)(i / 8);
+
+		Vec2 frame_pos = Vec2(x, y);
+
+		R_Rect rect;
+		rect.min = Vec2(0.125f, 0.1f) * frame_pos;
+		rect.max = Vec2(0.125f, 0.1f) + rect.min;
+
+		frame->rect = rect;
+		frame->time = 4;
+	}
+
+	return animation;
+}
+
+Animation LoadRunAnimation() {
+	Animation animation;
+
+	animation.texture = LoadTexture("Run.png");
+	animation.time    = 0;
+	animation.current = 0;
+
+	animation.properties.repeat = true;
+
+	animation.count  = 10;
+	animation.frames = new Animation_Frame[animation.count];
+
+	for (uint32_t i = 0; i < animation.count; ++i) {
+		auto frame = &animation.frames[i];
+
+		float x = (float)(i % 10);
+		float y = (float)(i / 10);
+
+		Vec2 frame_pos = Vec2(x, y);
+
+		R_Rect rect;
+		rect.min = Vec2(0.2f, 0.5f) * frame_pos;
+		rect.max = Vec2(0.2f, 0.5f) + rect.min;
+
+		frame->rect = rect;
+		frame->time = 4;
+	}
+
+	return animation;
+}
+
+void StepAnimation(Animation *animation) {
+	Animation_Frame *frame = &animation->frames[animation->current];
+
+	if (animation->time == frame->time) {
+		if (animation->current + 1 == animation->count) {
+			if (!animation->properties.repeat)
+				return;
+			animation->current = 0;
+		} else {
+			animation->current += 1;
+		}
+		animation->time = 0;
+	}
+
+	animation->time += 1;
+}
+
+void ResetAnimation(Animation *animation) {
+	animation->current = 0;
+	animation->time    = 0;
+}
+
+void DrawAnimation(R_Renderer2d *renderer, Vec2 pos, Vec2 dim, const Animation &animation, Vec2 dir = Vec2(0)) {
+	R_Texture *texture     = GetResource(animation.texture);
+	Animation_Frame &frame = animation.frames[animation.current];
+
+	R_Rect rect = frame.rect;
+	if (dir.x < 0) {
+		rect.min.x  = 1.0f - rect.min.x;
+		rect.max.x  = 1.0f - rect.max.x;
+	}
+	if (dir.y < 0) {
+		rect.min.y = 1.0f - rect.min.y;
+		rect.max.y = 1.0f - rect.max.y;
+	}
+
+	R_DrawTextureCentered(renderer, texture, pos, dim, rect, Vec4(1));
+}
+
+struct Input_Map {
+	PL_Key left[2];
+	PL_Key right[2];
+	PL_Key up[2];
+	PL_Key down[2];
+};
+
+struct Controller {
+	Vec2 axis;
+};
+
+static inline float IntersectLineLine(Vec2 p1, Vec2 p2, Vec2 p3, Vec2 p4) {
+	Vec2 diff = p3 - p4;
+
+	float d = (p1.x - p2.x) * diff.y - (p1.y - p2.y) * diff.x;
+
+	if (d) {
+		float n = (p1.x - p3.x) * diff.y - (p1.y - p3.y) * diff.x;
+		float t = n / d;
+		return t;
+	}
+
+	return INFINITY;
+}
+
+struct Rigid_Body {
+	Vec2  position;
+	Vec2  velocity;
+	float drag;
+	float imass;
+	Vec2  force;
+};
+
+void ApplyForce(Rigid_Body *body, Vec2 force) {
+	body->force += force;
+}
+
+void ApplyDrag(Rigid_Body *body, float k1, float k2) {
+	Vec2 velocity = body->velocity;
+	float speed   = Length(velocity);
+	float drag    = k1 * speed + k2 * speed * speed;
+
+	if (speed)
+		velocity /= speed;
+
+	Vec2 force = -velocity * drag;
+	ApplyForce(body, force);
+}
+
+void ApplyGravity(Rigid_Body *body, Vec2 g) {
+	if (body->imass == 0.0f) return;
+	Vec2 force = g / body->imass;
+	ApplyForce(body, force);
+}
+
+void ApplySpring(Rigid_Body *a, Rigid_Body *b, float k, float rest_length) {
+	Vec2 dir     = a->position - b->position;
+	float length = Length(dir);
+	
+	float magnitude = (rest_length - length) * k;
+	Vec2 force = magnitude * NormalizeZ(dir);
+	ApplyForce(a, force);
+	ApplyForce(b, -force);
+}
+
+void ApplySpring(Rigid_Body *body, Vec2 anchor, float k, float rest_length) {
+	Vec2 dir = body->position - anchor;
+	float length = Length(dir);
+
+	float magnitude = (rest_length - length) * k;
+	Vec2 force = magnitude * NormalizeZ(dir);
+	ApplyForce(body, force);
+}
+
+void ApplyBungee(Rigid_Body *a, Rigid_Body *b, float k, float rest_length) {
+	Vec2 dir = a->position - b->position;
+	float length = Length(dir);
+
+	if (length <= rest_length) return;
+
+	float magnitude = (rest_length - length) * k;
+	Vec2 force = magnitude * NormalizeZ(dir);
+	ApplyForce(a, force);
+	ApplyForce(b, -force);
+}
+
+void ApplyBungee(Rigid_Body *body, Vec2 anchor, float k, float rest_length) {
+	Vec2 dir = body->position - anchor;
+	float length = Length(dir);
+
+	if (length <= rest_length) return;
+
+	float magnitude = (rest_length - length) * k;
+	Vec2 force = magnitude * NormalizeZ(dir);
+	ApplyForce(body, force);
+}
+
+void ApplyBouyancy(Rigid_Body *body, float max_depth, float volume, float liquid_height, float liquid_density) {
+	float depth = body->position.y;
+
+	// out of water
+	if (depth >= liquid_height + max_depth)
+		return;
+
+	if (depth <= liquid_height - max_depth) {
+		Vec2 force = Vec2(0, liquid_density * volume);
+		ApplyForce(body, force);
+		return;
+	}
+
+	// partly submerged
+	Vec2 force;
+	force.x = 0.0f;
+	force.y = liquid_density * volume * (depth - max_depth - liquid_height) / (2 * max_depth);
+	ApplyForce(body, force);
+}
+
+void Integrate(Rigid_Body *body, float dt, Vec2 gravity) {
+	if (body->imass == 0.0f) return;
+
+	Vec2 acceleration = Vec2(0);
+	acceleration += body->force * body->imass;
+	acceleration += gravity;
+
+	body->velocity += acceleration * dt;
+	body->velocity *= Pow(1.0f - body->drag, dt);
+	body->position += body->velocity * dt;
+
+	body->force = Vec2(0);
+}
+
 int Main(int argc, char **argv) {
 	PL_ThreadCharacteristics(PL_THREAD_GAMES);
 
@@ -318,29 +582,52 @@ int Main(int argc, char **argv) {
 	Manager.allocator = M_GetDefaultHeapAllocator();
 
 	H_Pipeline pipeline  = LoadPipeline("Shaders/HLSL/Quad.shader");
-	//H_Texture arrow_head = LoadTexture("ArrowHead.png");
 
-	H_Texture dance = LoadTexture("Dance.bmp");
-	H_Texture walk  = LoadTexture("Run.png");
+	Input_Map input_map;
+	input_map.left[0]  = PL_KEY_LEFT;
+	input_map.left[1]  = PL_KEY_A;
+	input_map.right[0] = PL_KEY_RIGHT;
+	input_map.right[1] = PL_KEY_D;
+	input_map.up[0]    = PL_KEY_UP;
+	input_map.up[1]    = PL_KEY_W;
+	input_map.down[0]  = PL_KEY_DOWN;
+	input_map.down[1]  = PL_KEY_S;
 
-	memset(GridMap, 0, sizeof(GridMap));
+	Animation dance = LoadDanceAnimation();
+	Animation run   = LoadRunAnimation();
 
-	for (int y = -4; y <= 4; ++y) {
-		for (int x = -5; x <= 5; ++x) {
-			SetGrid(x, y);
-		}
+	Rigid_Body bodies[20];
+
+	for (Rigid_Body &body : bodies) {
+		body.position = RandomVec2(Vec2(-5, 3), Vec2(5, 4));
+		body.velocity = Vec2(0);
+		body.force    = Vec2(0);
+		body.drag     = 0.1f;
+		body.imass    = 1.0f/ 0.2f; // 1.0f / RandomFloat(0.1f, 0.5f);
 	}
 
-	Vec2 position = Vec2(-3);
+	Vec2 gravity = Vec2(0.0f, -3.0f);
+
+	Controller controller;
+	controller.axis = Vec2(0);
+
+	Vec2 camera_pos = Vec2(0);
+	float camera_dist = 1.0f;
 
 	float width, height;
 	R_GetRenderTargetSize(swap_chain, &width, &height);
 
 	Vec2 cursor_pos = Vec2(0);
 
-	uint64_t counter = PL_GetPerformanceCounter();
-	float frequency = (float)PL_GetPerformanceFrequency();
-	float frame_time = 0.0f;
+	uint64_t counter  = PL_GetPerformanceCounter();
+	float frequency   = (float)PL_GetPerformanceFrequency();
+
+	const float dt    = 1.0f / 60.0f;
+	float accumulator = dt;
+
+	float frame_time_ms = 0.0f;
+
+	bool follow = false;
 
 	bool running = true;
 
@@ -354,12 +641,46 @@ int Main(int argc, char **argv) {
 				break;
 			}
 
-			if (e.kind == PL_EVENT_TEXT_INPUT) {
-				uint8_t buffer[4];
-				int len = CodepointToUTF8(e.text.codepoint, buffer);
-				buffer[len] = 0;
+			if (e.kind == PL_EVENT_KEY_PRESSED || e.kind == PL_EVENT_KEY_RELEASED) {
+				float value = (float)(e.kind == PL_EVENT_KEY_PRESSED);
 
-				LogWarning("Text input: %", (char *)buffer);
+				for (PL_Key left : input_map.left) {
+					if (left == e.key.id) {
+						controller.axis.x = -value;
+						break;
+					}
+				}
+
+				for (PL_Key right : input_map.right) {
+					if (right == e.key.id) {
+						controller.axis.x = value;
+						break;
+					}
+				}
+
+				for (PL_Key down : input_map.down) {
+					if (down == e.key.id) {
+						controller.axis.y = -value;
+						break;
+					}
+				}
+
+				for (PL_Key up : input_map.up) {
+					if (up == e.key.id) {
+						controller.axis.y = value;
+						break;
+					}
+				}
+			}
+
+			if (e.kind == PL_EVENT_KEY_PRESSED && e.key.id == PL_KEY_SPACE) {
+				if (!e.key.repeat) {
+					follow = !follow;
+				}
+			}
+
+			if (e.kind == PL_EVENT_CONTROLLER_THUMB_LEFT) {
+				controller.axis = Vec2(e.controller.thumb.x, e.controller.thumb.y);
 			}
 
 			if (e.kind == PL_EVENT_CURSOR) {
@@ -372,6 +693,44 @@ int Main(int argc, char **argv) {
 				R_ResizeRenderTargets(device, swap_chain, e.resize.w, e.resize.h);
 			}
 		}
+
+		controller.axis = NormalizeZ(controller.axis);
+
+		Vec2 anchor = Vec2(0, 3.5f);
+		float water_level = -2.0f;
+
+		while (accumulator >= dt) {
+			for (Rigid_Body &a : bodies) {
+				for (Rigid_Body &b : bodies) {
+					if (&a == &b) continue;
+
+					float min_dist = 0.5f;
+					float distance = Distance(a.position, b.position);
+
+					if (distance < min_dist) {
+						ApplySpring(&a, &b, 2, min_dist);
+					}
+				}
+			}
+
+			for (Rigid_Body &body : bodies) {
+				ApplyBouyancy(&body, 0.0f, 1.0f, water_level, 1.0f);
+				ApplyBungee(&body, anchor, 2, 3);
+				Integrate(&body, dt, gravity);
+			}
+
+			if (follow) {
+				camera_pos = Lerp(camera_pos, bodies[0].position, 0.5f);
+				camera_dist = Lerp(camera_dist, 0.5f, 0.5f);
+			} else {
+				camera_pos = Lerp(camera_pos, Vec2(0), 0.5f);
+				camera_dist = Lerp(camera_dist, 1.0f, 0.5f);
+			}
+
+			accumulator -= dt;
+		}
+
+		StepAnimation(&dance);
 
 		R_GetRenderTargetSize(swap_chain, &width, &height);
 
@@ -389,59 +748,41 @@ int Main(int argc, char **argv) {
 
 		R_CameraView(renderer, 0.0f, width, 0.0f, height, -1.0f, 1.0f);
 
-		String text = TmpFormat("%ms % FPS", frame_time, (int)(1000.0f / frame_time));
+		String text = TmpFormat("%ms % FPS", frame_time_ms, (int)(1000.0f / frame_time_ms));
 		R_DrawText(renderer, Vec2(0.0f, height - 25.0f), Vec4(1), text);
-		
+		//R_DrawText(renderer, Vec2(0.0f, height - 50.0f), Vec4(1), TmpFormat("%", controller.axis));
+		//R_DrawText(renderer, Vec2(0.0f, height - 75.0f), Vec4(1), TmpFormat("Position %", actor.position));
+		//R_DrawText(renderer, Vec2(0.0f, height - 100.0f), Vec4(1), TmpFormat("Velocity %", actor.velocity));
 
 		/////////////////////////////////////////////////////////////////////////////
 
 		R_CameraView(renderer, aspect_ratio, cam_height);
 		R_SetLineThickness(renderer, 2.0f * cam_height / height);
 
-		for (int y = -50; y < 50; ++y) {
-			for (int x = -50; x < 50; ++x) {
-				if (GetGrid(x, y)) {
-					R_DrawRectCenteredOutline(renderer, Vec2((float)x, (float)y), Vec2(1), Vec4(1));
-				}
-			}
+		Mat4 camera_transform = Translation(Vec3(camera_pos, 0)) * Scale(Vec3(camera_dist, camera_dist, 1.0f));
+		Mat4 world_transform  = Inverse(camera_transform);
+
+		R_PushTransform(renderer, world_transform);
+
+
+		Vec2 render_offset = Vec2(0);
+
+		//DrawAnimation(renderer, Vec2(0) + render_offset, Vec2(88, 128) / 88.0f, dance);
+
+		R_DrawRectCentered(renderer, anchor, Vec2(0.1f), Vec4(1, 1, 0, 1));
+
+		for (const Rigid_Body &body : bodies) {
+			float radius = 1.0f / body.imass;
+			R_DrawCircleOutline(renderer, body.position, radius, Vec4(1));
+			R_DrawLine(renderer, body.position, anchor, Vec4(1, 1, 0, 1));
 		}
 
-		float cursor_x = roundf(cursor_cam_pos.x);
-		float cursor_y = roundf(cursor_cam_pos.y);
-
-		int val = GetGrid((int)cursor_x, (int)cursor_y);
-
-		R_DrawRectCenteredOutline(renderer, Vec2(cursor_x, cursor_y), Vec2(1), val ? Vec4(1, 1, 0, 1) : Vec4(1, 0, 0, 1));
-
-		static int frame_counter = 0;
-		static int frame_index = 0;
-
-		frame_counter += 1;
-
-		if (frame_counter % 5 == 0)
-			frame_index = (frame_index + 1) % 8;
-
-		Vec2 frame_pos = Vec2((float)frame_index, 3.0f);
-
-		R_Rect rect;
-		rect.min = Vec2(0.125f, 0.1f) * frame_pos;
-		rect.max = Vec2(0.125f, 0.1f) + rect.min;
-
-		Vec2 render_offset = Vec2(0, .25f);
-
-		R_DrawTextureCentered(renderer, GetResource(dance), position + render_offset, Vec2(88, 128) / 88.0f, rect);
-
-		static int walk_index = 0;
-
-		walk_index = (walk_index + 1) % 10;
-
-		frame_pos = Vec2(0);
-		rect.min  = Vec2(0.2f, 0.5f) * frame_pos;
-		rect.max  = Vec2(0.2f, 0.5f) + rect.min;
-		R_DrawTextureCentered(renderer, GetResource(walk), Vec2(0) + render_offset, Vec2(0.72f, 1.8f), rect);
+		R_DrawLine(renderer, Vec2(-10.0f, water_level), Vec2(10.0f, water_level), Vec4(0, 0, 1, 1));
 
 		//R_DrawRectCentered(renderer, position, Vec2(0.1f), Vec4(1, 0, 0, 1));
 		//R_DrawCircle(renderer, Vec2(0), 0.1f, Vec4(1, 0, 0, 1));
+
+		R_PopTransform(renderer);
 
 		R_Viewport viewport;
 		viewport.y = viewport.x = 0;
@@ -466,10 +807,11 @@ int Main(int argc, char **argv) {
 		ResetThreadScratchpad();
 
 		uint64_t current = PL_GetPerformanceCounter();
-		uint64_t counts = current - counter;
+		uint64_t counts  = current - counter;
 		counter = current;
 
-		frame_time = 1000.0f * (float)counts / frequency;
+		frame_time_ms = ((1000000.0f * (float)counts) / frequency) / 1000.0f;
+		accumulator += (frame_time_ms / 1000.0f);
 	}
 
 	R_Flush(queue);
