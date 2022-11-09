@@ -459,6 +459,7 @@ static inline float IntersectLineLine(Vec2 p1, Vec2 p2, Vec2 p3, Vec2 p4) {
 struct Rigid_Body {
 	Vec2  position;
 	Vec2  velocity;
+	Vec2  acceleration;
 	float drag;
 	float imass;
 	Vec2  force;
@@ -548,18 +549,153 @@ void ApplyBouyancy(Rigid_Body *body, float max_depth, float volume, float liquid
 	ApplyForce(body, force);
 }
 
-void Integrate(Rigid_Body *body, float dt, Vec2 gravity) {
+void ClearForces(Array_View<Rigid_Body> bodies) {
+	for (Rigid_Body &body : bodies) {
+		body.force = Vec2(0);
+	}
+}
+
+void Integrate(Rigid_Body *body, float dt) {
 	if (body->imass == 0.0f) return;
 
-	Vec2 acceleration = Vec2(0);
+	Vec2 acceleration = body->acceleration;
 	acceleration += body->force * body->imass;
-	acceleration += gravity;
 
 	body->velocity += acceleration * dt;
 	body->velocity *= Pow(1.0f - body->drag, dt);
 	body->position += body->velocity * dt;
+}
 
-	body->force = Vec2(0);
+struct Contact {
+	Rigid_Body *bodies[2];
+	Vec2        normal;
+	float       restitution;
+	float       penetration;
+};
+
+float CalcSeparatingVelocity(Contact *contact) {
+	Rigid_Body *a    = contact->bodies[0];
+	Rigid_Body *b    = contact->bodies[1];
+	Vec2 relative    = a->velocity - b->velocity;
+	float separation = DotProduct(relative, contact->normal);
+	return separation;
+}
+
+void ResolveVelocity(Contact *contact, float dt) {
+	Rigid_Body *a = contact->bodies[0];
+	Rigid_Body *b = contact->bodies[1];
+
+	float separation = CalcSeparatingVelocity(contact);
+
+	if (separation <= 0) {
+		float bounce = separation * contact->restitution;
+
+		Vec2 relative = (a->acceleration - b->acceleration) * dt;
+		float acc_separation = DotProduct(relative, contact->normal);
+
+		if (acc_separation < 0) {
+			bounce -= acc_separation * contact->restitution;
+			bounce = Max(0.0f, bounce);
+		}
+
+		float delta = -(bounce + separation);
+
+		float imass = a->imass + b->imass;
+		if (imass <= 0) return;
+
+		float impulse = delta / imass;
+
+		Vec2 impulse_per_imass = impulse * contact->normal;
+
+		a->velocity += impulse_per_imass * a->imass;
+		b->velocity -= impulse_per_imass * b->imass;
+	}
+}
+
+void ResolvePosition(Contact *contact) {
+	Rigid_Body *a = contact->bodies[0];
+	Rigid_Body *b = contact->bodies[1];
+
+	if (contact->penetration > 0) {
+		float imass = a->imass + b->imass;
+		if (imass <= 0) return;
+
+		Vec2 move_per_imass = contact->penetration / imass * contact->normal;
+
+		a->position += move_per_imass * a->imass;
+		b->position -= move_per_imass * b->imass;
+
+		contact->penetration = 0; // TODO: Is this required?
+	}
+}
+
+int ResolveCollisions(Array_View<Contact> contacts, int max_iters, float dt) {
+	// TODO: separate velocity and position resolution into different loop
+	int iter = 0;
+	for (; iter < max_iters; ++iter) {
+		float max = FLT_MAX;
+		int max_i = (int)contacts.count;
+
+		for (int i = 0; i < (int)contacts.count; ++i) {
+			float sep = CalcSeparatingVelocity(&contacts[i]);
+			if (sep < max && (sep < 0 || contacts[i].penetration > 0)) {
+				max = sep;
+				max_i = i;
+			}
+		}
+
+		if (max_i == (int)contacts.count) break;
+
+		// TODO: Remove this collision??
+		ResolveVelocity(&contacts[max_i], dt);
+		ResolvePosition(&contacts[max_i]); // TODO: update penetrations??
+	}
+	return iter;
+}
+
+int ApplyCableConstraint(Rigid_Body *a, Rigid_Body *b, float max_length, float restitution, Contact *contact) {
+	float length = Distance(a->position, b->position);
+
+	if (length < max_length)
+		return 0;
+
+	contact->bodies[0]   = a;
+	contact->bodies[1]   = b;
+	contact->normal      = NormalizeZ(b->position - a->position);
+	contact->penetration = length - max_length;
+	contact->restitution = restitution;
+
+	return 1;
+}
+
+int ApplyRodConstraint(Rigid_Body *a, Rigid_Body *b, float length, Contact *contact) {
+	float curr_length = Distance(a->position, b->position);
+
+	if (curr_length == length)
+		return 0;
+
+	contact->bodies[0]   = a;
+	contact->bodies[1]   = b;
+	contact->normal      = NormalizeZ(b->position - a->position) * Sgn(curr_length - length);
+	contact->penetration = Absolute(curr_length - length);
+	contact->restitution = 0;
+
+	return 1;
+}
+
+int ApplyMagnetRepelConstraint(Rigid_Body *a, Rigid_Body *b, float max_length, float restitution, Contact *contact) {
+	float length = Distance(a->position, b->position);
+
+	if (length > max_length)
+		return 0;
+
+	contact->bodies[0]   = a;
+	contact->bodies[1]   = b;
+	contact->normal      = NormalizeZ(a->position - b->position);
+	contact->penetration = max_length - length;
+	contact->restitution = restitution;
+
+	return 1;
 }
 
 int Main(int argc, char **argv) {
@@ -596,17 +732,28 @@ int Main(int argc, char **argv) {
 	Animation dance = LoadDanceAnimation();
 	Animation run   = LoadRunAnimation();
 
-	Rigid_Body bodies[20];
+	Rigid_Body bodies[5];
+
+	float ground_level = -2.0f;
+
+	Rigid_Body ground;
+	ground.position = Vec2(0, ground_level);
+	ground.velocity = Vec2(0);
+	ground.force    = Vec2(0);
+	ground.drag     = 0;
+	ground.imass    = 0;
 
 	for (Rigid_Body &body : bodies) {
-		body.position = RandomVec2(Vec2(-5, 3), Vec2(5, 4));
-		body.velocity = Vec2(0);
-		body.force    = Vec2(0);
-		body.drag     = 0.1f;
-		body.imass    = 1.0f/ 0.2f; // 1.0f / RandomFloat(0.1f, 0.5f);
+		body.position     = RandomVec2(Vec2(-5, 3), Vec2(5, 4));
+		body.velocity     = Vec2(0);
+		body.acceleration = Vec2(0, -10);
+		body.force        = Vec2(0);
+		body.drag         = 0.2f;
+		body.imass        = 1.0f / RandomFloat(0.1f, 0.5f);
 	}
 
-	Vec2 gravity = Vec2(0.0f, -3.0f);
+	Array<Contact> contacts;
+	int iterations = 0;
 
 	Controller controller;
 	controller.axis = Vec2(0);
@@ -679,6 +826,18 @@ int Main(int argc, char **argv) {
 				}
 			}
 
+			if (e.kind == PL_EVENT_KEY_PRESSED && e.key.id == PL_KEY_RETURN) {
+				if (!e.key.repeat) {
+					for (Rigid_Body &body : bodies) {
+						body.position = RandomVec2(Vec2(-5, 3), Vec2(5, 4));
+						body.velocity = Vec2(0);
+						body.force    = Vec2(0);
+						body.drag     = 0.2f;
+						body.imass    = 1.0f/ 0.2f; // 1.0f / RandomFloat(0.1f, 0.5f);
+					}
+				}
+			}
+
 			if (e.kind == PL_EVENT_CONTROLLER_THUMB_LEFT) {
 				controller.axis = Vec2(e.controller.thumb.x, e.controller.thumb.y);
 			}
@@ -697,27 +856,58 @@ int Main(int argc, char **argv) {
 		controller.axis = NormalizeZ(controller.axis);
 
 		Vec2 anchor = Vec2(0, 3.5f);
-		float water_level = -2.0f;
 
 		while (accumulator >= dt) {
+			ClearForces(bodies);
+
+			ApplyForce(&bodies[0], 10.0f * controller.axis);
+
+			//ApplyBungee(&bodies[1], bodies[0].position, 10, 1);
+
+#if 0
 			for (Rigid_Body &a : bodies) {
 				for (Rigid_Body &b : bodies) {
 					if (&a == &b) continue;
 
 					float min_dist = 0.5f;
+					float max_dist = 2.0f;
 					float distance = Distance(a.position, b.position);
 
 					if (distance < min_dist) {
 						ApplySpring(&a, &b, 2, min_dist);
+					} else if (distance > max_dist) {
+						ApplySpring(&a, &b, 2, max_dist);
 					}
 				}
 			}
+#endif
 
 			for (Rigid_Body &body : bodies) {
-				ApplyBouyancy(&body, 0.0f, 1.0f, water_level, 1.0f);
-				ApplyBungee(&body, anchor, 2, 3);
-				Integrate(&body, dt, gravity);
+				//ApplyBouyancy(&body, 0.0f, 1.0f, water_level, 1.0f);
+				//ApplyBungee(&body, anchor, 2, 3);
+				Integrate(&body, dt);
 			}
+
+			Reset(&contacts);
+
+			Contact contact;
+			for (Rigid_Body &body : bodies) {
+				if (body.position.y <= ground.position.y) {
+					contact.bodies[0]   = &body;
+					contact.bodies[1]   = &ground;
+					contact.normal      = Vec2(0, 1);
+					contact.restitution = 0.5f;
+					contact.penetration = ground.position.y - body.position.y;
+
+					Append(&contacts, contact);
+				}
+			}
+
+			if (ApplyRodConstraint(&bodies[0], &bodies[1], 2, &contact)) {
+				Append(&contacts, contact);
+			}
+
+			iterations = ResolveCollisions(contacts, 2 * (int)contacts.count, dt);
 
 			if (follow) {
 				camera_pos = Lerp(camera_pos, bodies[0].position, 0.5f);
@@ -750,7 +940,7 @@ int Main(int argc, char **argv) {
 
 		String text = TmpFormat("%ms % FPS", frame_time_ms, (int)(1000.0f / frame_time_ms));
 		R_DrawText(renderer, Vec2(0.0f, height - 25.0f), Vec4(1), text);
-		//R_DrawText(renderer, Vec2(0.0f, height - 50.0f), Vec4(1), TmpFormat("%", controller.axis));
+		R_DrawText(renderer, Vec2(0.0f, height - 50.0f), Vec4(1), TmpFormat("%", iterations));
 		//R_DrawText(renderer, Vec2(0.0f, height - 75.0f), Vec4(1), TmpFormat("Position %", actor.position));
 		//R_DrawText(renderer, Vec2(0.0f, height - 100.0f), Vec4(1), TmpFormat("Velocity %", actor.velocity));
 
@@ -774,10 +964,16 @@ int Main(int argc, char **argv) {
 		for (const Rigid_Body &body : bodies) {
 			float radius = 1.0f / body.imass;
 			R_DrawCircleOutline(renderer, body.position, radius, Vec4(1));
-			R_DrawLine(renderer, body.position, anchor, Vec4(1, 1, 0, 1));
+			R_DrawRectCentered(renderer, body.position, Vec2(0.1f), Vec4(1));
+			//R_DrawLine(renderer, body.position, anchor, Vec4(1, 1, 0, 1));
 		}
 
-		R_DrawLine(renderer, Vec2(-10.0f, water_level), Vec2(10.0f, water_level), Vec4(0, 0, 1, 1));
+		float radius = 1.0f / bodies[0].imass;
+		R_DrawCircleOutline(renderer, bodies[0].position, radius, Vec4(1, 0, 1, 1));
+		R_DrawRectCentered(renderer, bodies[0].position, Vec2(0.1f), Vec4(1));
+
+		R_DrawLine(renderer, Vec2(-10.0f, ground.position.y), Vec2(10.0f, ground.position.y), Vec4(0, 0, 1, 1));
+		R_DrawLine(renderer, bodies[0].position, bodies[1].position, Vec4(1, 0, 0, 1));
 
 		//R_DrawRectCentered(renderer, position, Vec2(0.1f), Vec4(1, 0, 0, 1));
 		//R_DrawCircle(renderer, Vec2(0), 0.1f, Vec4(1, 0, 0, 1));
