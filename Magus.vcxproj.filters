@@ -48,9 +48,6 @@
     <ClCompile Include="Magus\Kr\KrLog.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
-    <ClCompile Include="Magus\Kr\KrMathFormat.cpp">
-      <Filter>Source Files</Filter>
-    </ClCompile>
     <ClCompile Include="Magus\Kr\KrPrint.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
@@ -129,12 +126,6 @@
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="Magus\Kr\KrLog.h">
-      <Filter>Header Files</Filter>
-    </ClInclude>
-    <ClInclude Include="Magus\Kr\KrMapFormat.h">
-      <Filter>Header Files</Filter>
-    </ClInclude>
-    <ClInclude Include="Magus\Kr\KrMathFormat.h">
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="Magus\Kr\KrPrint.h">

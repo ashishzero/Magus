@@ -87,7 +87,6 @@
     <ClCompile Include="Magus\Kr\KrFormat.cpp" />
     <ClCompile Include="Magus\Kr\KrIndex.cpp" />
     <ClCompile Include="Magus\Kr\KrLog.cpp" />
-    <ClCompile Include="Magus\Kr\KrMathFormat.cpp" />
     <ClCompile Include="Magus\Kr\KrPrint.cpp" />
     <ClCompile Include="Magus\Kr\KrRandom.cpp" />
     <ClCompile Include="Magus\Kr\KrThreadContext.cpp" />
@@ -113,8 +112,6 @@
     <ClInclude Include="Magus\Kr\KrFormat.h" />
     <ClInclude Include="Magus\Kr\KrIndex.h" />
     <ClInclude Include="Magus\Kr\KrLog.h" />
-    <ClInclude Include="Magus\Kr\KrMapFormat.h" />
-    <ClInclude Include="Magus\Kr\KrMathFormat.h" />
     <ClInclude Include="Magus\Kr\KrPrint.h" />
     <ClInclude Include="Magus\Kr\KrThreadContext.h" />
     <ClInclude Include="Magus\Kr\KrTypeTraits.h" />
