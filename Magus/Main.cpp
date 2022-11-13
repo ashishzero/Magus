@@ -276,41 +276,8 @@ void ReleaseAll() {
 //
 //
 
-#if 0
-int GridMap[100][100];
-
-int GetGrid(int x, int y) {
-	x = x + 50;
-	y = y + 50;
-
-	if (IsInRange(0, 99, x) && IsInRange(0, 99, y)) {
-		return GridMap[y][x];
-	}
-
-	return 0;
-}
-
-void SetGrid(int x, int y) {
-	x = x + 50;
-	y = y + 50;
-
-	if (IsInRange(0, 99, x) && IsInRange(0, 99, y)) {
-		GridMap[y][x] = 1;
-	}
-}
-
-void ClearGrid(int x, int y) {
-	x = x + 50;
-	y = y + 50;
-
-	if (IsInRange(0, 99, x) && IsInRange(0, 99, y)) {
-		GridMap[y][x] = 0;
-	}
-}
-#endif
-
 struct Animation_Frame {
-	Rect     rect;
+	Region     rect;
 	uint32_t time;
 };
 
@@ -441,6 +408,7 @@ struct Controller {
 	Vec2 axis;
 };
 
+#if 0
 static inline float IntersectLineLine(Vec2 p1, Vec2 p2, Vec2 p3, Vec2 p4) {
 	Vec2 diff = p3 - p4;
 
@@ -454,6 +422,7 @@ static inline float IntersectLineLine(Vec2 p1, Vec2 p2, Vec2 p3, Vec2 p4) {
 
 	return INFINITY;
 }
+#endif
 
 enum Rigid_Body_Flags : uint {
 	RIGID_BODY_IS_AWAKE = 0x1
@@ -474,40 +443,26 @@ struct Rigid_Body {
 	Vec2  force;
 	float torque;
 
-	Mat3  transform;
+	// TODO: We don't really need this here
+	Transform2d transform;
 
 	uint  flags;
 };
 
-Vec2 LocalToWorld(const Mat3 &transform, Vec2 local) {
-	Vec2 res;
-	res.x = local.x * transform.m[0] + local.y * transform.m[1] + transform.m[2];
-	res.y = local.x * transform.m[3] + local.y * transform.m[4] + transform.m[5];
-	return res;
+Vec2 LocalToWorld(const Rigid_Body *body, Vec2 local) {
+	return LocalToWorld(body->transform, local);
 }
 
-Vec2 LocalDirToWorld(const Mat3 &transform, Vec2 local_dir) {
-	Vec2 res;
-	res.x = local_dir.x * transform.m[0] + local_dir.y * transform.m[1];
-	res.y = local_dir.x * transform.m[3] + local_dir.y * transform.m[4];
-	return res;
+Vec2 WorldToLocal(const Rigid_Body *body, Vec2 world) {
+	return WorldToLocal(body->transform, world);
 }
 
-Vec2 WorldToLocal(const Mat3 &transform, Vec2 world) {
-	world.x -= transform.m[2];
-	world.y -= transform.m[5];
-
-	Vec2 res;
-	res.x = world.x * transform.m[0] + world.y * transform.m[3];
-	res.y = world.x * transform.m[1] + world.y * transform.m[4];
-	return res;
+Vec2 LocalDirToWorld(const Rigid_Body *body, Vec2 local_dir) {
+	return LocalDirToWorld(body->transform, local_dir);
 }
 
-Vec2 WorldDirToLocal(const Mat3 &transform, Vec2 world_dir) {
-	Vec2 res;
-	res.x = world_dir.x * transform.m[0] + world_dir.y * transform.m[3];
-	res.y = world_dir.x * transform.m[1] + world_dir.y * transform.m[4];
-	return res;
+Vec2 WorldDirToLocal(const Rigid_Body *body, Vec2 world_dir) {
+	return WorldDirToLocal(body->transform, world_dir);
 }
 
 void ApplyForce(Rigid_Body *body, Vec2 force) {
@@ -611,14 +566,13 @@ void ApplyBouyancy(Rigid_Body *body, Vec2 bouyancy_center, float submerged_volum
 	}
 }
 
-Mat3 CalcTransform(Rigid_Body *body) {
+Transform2d CalcTransform(Rigid_Body *body) {
 	float cosine = body->orientation.x;
-	float sine = body->orientation.y;
+	float sine   = body->orientation.y;
 
-	Mat3 transform;
-	transform.rows[0] = Vec3(cosine, -sine, body->position.x);
-	transform.rows[1] = Vec3(sine, cosine, body->position.y);
-	transform.rows[2] = Vec3(0, 0, 1);
+	Transform2d transform;
+	transform.rot = Rotation2x2(body->orientation);
+	transform.pos = body->position;
 
 	return transform;
 }
@@ -646,24 +600,31 @@ void Integrate(Rigid_Body *body, float dt) {
 	body->orientation = ComplexProduct(body->orientation, Arm(body->rotation * dt));
 }
 
-struct Contact {
+struct Rigid_Body_Pair {
 	Rigid_Body *bodies[2];
-	Vec2        normal;
-	float       restitution;
-	float       penetration;
+};
+
+struct Contact {
+	Rigid_Body_Pair pair;
+	Vec2            point;
+	Vec2            normal;
+	float           penetration;
+	float           restitution;
+	float           friction;
+	Contact *       next;
 };
 
 float CalcSeparatingVelocity(Contact *contact) {
-	Rigid_Body *a    = contact->bodies[0];
-	Rigid_Body *b    = contact->bodies[1];
+	Rigid_Body *a    = contact->pair.bodies[0];
+	Rigid_Body *b    = contact->pair.bodies[1];
 	Vec2 relative    = a->velocity - b->velocity;
 	float separation = DotProduct(relative, contact->normal);
 	return separation;
 }
 
 void ResolveVelocity(Contact *contact, float dt) {
-	Rigid_Body *a = contact->bodies[0];
-	Rigid_Body *b = contact->bodies[1];
+	Rigid_Body *a = contact->pair.bodies[0];
+	Rigid_Body *b = contact->pair.bodies[1];
 
 	float separation = CalcSeparatingVelocity(contact);
 
@@ -693,8 +654,8 @@ void ResolveVelocity(Contact *contact, float dt) {
 }
 
 void ResolvePosition(Contact *contact) {
-	Rigid_Body *a = contact->bodies[0];
-	Rigid_Body *b = contact->bodies[1];
+	Rigid_Body *a = contact->pair.bodies[0];
+	Rigid_Body *b = contact->pair.bodies[1];
 
 	if (contact->penetration > 0) {
 		float inv_mass = a->inv_mass + b->inv_mass;
@@ -739,8 +700,8 @@ int ApplyCableConstraint(Rigid_Body *a, Rigid_Body *b, float max_length, float r
 	if (length < max_length)
 		return 0;
 
-	contact->bodies[0]   = a;
-	contact->bodies[1]   = b;
+	contact->pair.bodies[0]   = a;
+	contact->pair.bodies[1]   = b;
 	contact->normal      = NormalizeZ(b->position - a->position);
 	contact->penetration = length - max_length;
 	contact->restitution = restitution;
@@ -754,8 +715,8 @@ int ApplyRodConstraint(Rigid_Body *a, Rigid_Body *b, float length, Contact *cont
 	if (curr_length == length)
 		return 0;
 
-	contact->bodies[0]   = a;
-	contact->bodies[1]   = b;
+	contact->pair.bodies[0]   = a;
+	contact->pair.bodies[1]   = b;
 	contact->normal      = NormalizeZ(b->position - a->position) * Sgn(curr_length - length);
 	contact->penetration = Absolute(curr_length - length);
 	contact->restitution = 0;
@@ -769,8 +730,8 @@ int ApplyMagnetRepelConstraint(Rigid_Body *a, Rigid_Body *b, float max_length, f
 	if (length > max_length)
 		return 0;
 
-	contact->bodies[0]   = a;
-	contact->bodies[1]   = b;
+	contact->pair.bodies[0]   = a;
+	contact->pair.bodies[1]   = b;
 	contact->normal      = NormalizeZ(a->position - b->position);
 	contact->penetration = max_length - length;
 	contact->restitution = restitution;
@@ -780,20 +741,731 @@ int ApplyMagnetRepelConstraint(Rigid_Body *a, Rigid_Body *b, float max_length, f
 
 void RandomRigidBodies(Array_View<Rigid_Body> bodies) {
 	for (Rigid_Body &body : bodies) {
-		body.inv_mass        = 1.0f / RandomFloat(0.1f, 0.5f);
-		body.inv_inertia     = 0.0f;
-		body.damping         = 0.8f;
+		body.inv_mass = 1.0f / RandomFloat(0.1f, 0.5f);
+		body.inv_inertia = 0.0f;
+		body.damping = 0.8f;
 		body.angular_damping = 0.8f;
-		body.position        = RandomVec2(Vec2(-5, 3), Vec2(5, 4));
-		body.orientation     = Vec2(1, 0);
-		body.velocity        = Vec2(0);
-		body.rotation        = 0;
-		body.force           = Vec2(0);
-		body.acceleration    = Vec2(0, -10);
-		body.transform       = CalcTransform(&body);
-		body.flags           = 0;
+		body.position = RandomVec2(Vec2(-5, 3), Vec2(5, 4));
+		body.orientation = Vec2(1, 0);
+		body.velocity = Vec2(0);
+		body.rotation = 0;
+		body.force = Vec2(0);
+		body.acceleration = Vec2(0, -10);
+		body.transform = CalcTransform(&body);
+		body.flags = 0;
 	}
 }
+
+// TODO: Continuous collision detection
+
+enum Fixture_Shape {
+	FIXTURE_SHAPE_CIRCLE,
+	FIXTURE_SHAPE_CAPSULE,
+	FIXTURE_SHAPE_POLYGON,
+	FIXTURE_SHAPE_LINE,
+	FIXTURE_SHAPE_COUNT,
+};
+
+struct Fixture {
+	Fixture_Shape shape;
+
+	Fixture() {}
+	Fixture(Fixture_Shape _shape): shape(_shape) {}
+};
+
+struct Geometry {
+	uint32_t  count;
+	Fixture **fixtures;
+};
+
+template <typename Payload>
+struct TFixture : Fixture {
+	Payload payload;
+};
+
+//
+//
+//
+
+struct MTV {
+	Vec2  normal;
+	float penetration;
+};
+
+bool Overlaps(Vec2 p1, Vec2 p2) {
+	return p2.y > p1.x && p1.y > p2.x;
+}
+
+float CalcOverlap(Vec2 p1, Vec2 p2) {
+	float overlap = Min(p1.y, p2.y) - Max(p1.x, p2.x);
+
+	// if one contains the either
+	if (p1.x > p2.x && p1.y < p2.y) {
+		overlap += Min(p1.x - p2.x, p2.y - p1.y);
+	} else if (p2.x > p1.x && p2.y < p1.y) {
+		overlap += Min(p2.x - p1.x, p1.y - p2.y);
+	}
+
+	return overlap;
+}
+
+// todo: verify
+template <typename ShapeA, typename ShapeB>
+bool SeparateAxis(const ShapeA &a, const Transform2d &ta, const ShapeB &b, const Transform2d &tb, MTV *mtv) {
+	float overlap = FLT_MAX;
+	Vec2 normal   = Vec2(0, 0);
+
+	Vec2 axis;
+	
+	for (uint index = 0; GetAxis(index, a, ta, &axis); ++index) {
+		Vec2 p1 = Project(a, ta, axis);
+		Vec2 p2 = Project(b, tb, axis);
+
+		if (!Overlaps(p1, p1)) {
+			return false;
+		}
+
+		float o = CalcOverlap(p1, p2);
+		if (o < overlap) {
+			overlap = o;
+			normal  = axis;
+		}
+	}
+
+	for (uint index = 0; GetAxis(index, b, tb, &axis); ++index) {
+		Vec2 p1 = Project(a, ta, axis);
+		Vec2 p2 = Project(b, tb, axis);
+
+		if (!Overlaps(p1, p2)) {
+			return true;
+		}
+
+		float o = CalcOverlap(p1, p2);
+		if (o < overlap) {
+			overlap = o;
+			normal  = axis;
+		}
+	}
+
+	// Face the normal from shape a to shape b
+	if (DotProduct(normal, tb.pos - ta.pos) < 0.0f) {
+		normal = -normal;
+	}
+
+	mtv->normal      = NormalizeZ(normal);
+	mtv->penetration = overlap;
+
+	return true;
+}
+
+//
+//
+//
+
+static const Vec2 RectAxis[]          = { Vec2(1, 0), Vec2(0, 1) };
+static const Vec2 RectVertexOffsets[] = { Vec2(-1, -1), Vec2(1, -1), Vec2(1, 1), Vec2(-1, 1) };
+
+bool GetAxis(uint index, const Rect &rect, const Transform2d &transform, Vec2 *axis) {
+	if (index < 2) {
+		*axis = LocalDirToWorld(transform, RectAxis[index]);
+		return true;
+	}
+	return false;
+}
+
+bool GetAxis(uint index, const Polygon &polygon, const Transform2d &transform, Vec2 *axis) {
+	if (index < polygon.count) {
+		Vec2 p1 = polygon.vertices[index];
+		Vec2 p2 = polygon.vertices[(index + 1) % polygon.count];
+		Vec2 n  = PerpendicularVector(p1, p2);
+		*axis   = LocalDirToWorld(transform, n);
+		return true;
+	}
+	return false;
+}
+
+Vec2 Project(const Rect &rect, const Transform2d &transform, Vec2 axis) {
+	Vec2 vertex = LocalToWorld(transform, rect.center + RectVertexOffsets[0] * rect.half_size);
+
+	float min = DotProduct(axis, vertex);
+	float max = min;
+
+	for (int i = 1; i < ArrayCount(RectVertexOffsets); ++i) {
+		vertex  = LocalToWorld(transform, rect.center + RectVertexOffsets[i] * rect.half_size);
+		float p = DotProduct(axis, vertex);
+		if (p < min)
+			min = p;
+		else if (p > max)
+			max = p;
+	}
+
+	return Vec2(min, max);
+}
+
+Vec2 Project(const Polygon &polygon, const Transform2d &transform, Vec2 axis) {
+	Vec2 vertex = LocalToWorld(transform, polygon.vertices[0]);
+
+	float min = DotProduct(axis, vertex);
+	float max = min;
+
+	for (ptrdiff_t i = 1; i < polygon.count; ++i) {
+		vertex  = LocalToWorld(transform, polygon.vertices[i]);
+		float p = DotProduct(axis, vertex);
+		if (p < min)
+			min = p;
+		else if (p > max)
+			max = p;
+	}
+
+	return Vec2(min, max);
+}
+
+//
+//
+//
+
+void FillSurfaceData(Contact *contact, Rigid_Body_Pair pair, const Fixture *first, const Fixture *second) {
+	contact->pair = pair;
+	//todo: fill rest of the data
+	Unimplemented();
+}
+
+struct Contact_List {
+	Contact *first;
+	M_Arena *arena;
+	Contact  fallback;
+};
+
+Contact *PushContact(Contact_List *contacts, Rigid_Body_Pair pair, const Fixture *a, const Fixture *b) {
+	Contact *contact = M_PushType(contacts->arena, Contact);
+	if (contact) {
+		FillSurfaceData(contact, pair, a, b);
+
+		contact->next   = contacts->first;
+		contacts->first = contact;
+
+		return contact;
+	}
+
+	LogWarning("[Physics]: Failed to allocate new contact point");
+	return &contacts->fallback;
+}
+
+// todo: verify
+uint CircleVsCircle(const TFixture<Circle> *fixture_a, const TFixture<Circle> *fixture_b, Rigid_Body_Pair pair, Contact_List *contacts) {
+	const Circle &a = fixture_a->payload;
+	const Circle &b = fixture_b->payload;
+
+	Vec2 a_pos = LocalToWorld(pair.bodies[0], a.center);
+	Vec2 b_pos = LocalToWorld(pair.bodies[1], b.center);
+
+	Vec2 midline   = b_pos - a_pos;
+	float length2  = LengthSq(midline);
+	float min_dist = a.radius + b.radius;
+
+	if (length2 > min_dist * min_dist) {
+		return 0;
+	}
+
+	float length;
+	Vec2  normal;
+
+	if (length2) {
+		length = SquareRoot(length2);
+		normal = midline / length;
+	} else {
+		// Degenerate case (centers of circles are overlapping)
+		length = 0;
+		normal = Vec2(0, 1); // arbritray normal
+	}
+
+	float factor = a.radius / (a.radius + b.radius);
+
+	Contact *contact     = PushContact(contacts, pair, fixture_a, fixture_b);
+	contact->point       = a_pos + factor * midline;
+	contact->normal      = normal;
+	contact->penetration = min_dist - length;
+
+	return 1;
+}
+
+// todo: verify
+uint CircleVsLine(const TFixture<Circle> *fixture_a, const TFixture<Line> *fixture_b, Rigid_Body_Pair pair, Contact_List *contacts) {
+	const Circle &a = fixture_a->payload;
+	const Line &b   = fixture_b->payload;
+
+	Vec2 a_pos  = LocalToWorld(pair.bodies[0], a.center);
+	Vec2 normal = LocalDirToWorld(pair.bodies[1], b.normal);
+
+	float perp_dist = DotProduct(b.normal, a_pos);
+
+	float dist = perp_dist - a.radius - b.offset;
+
+	if (dist > 0) {
+		return 0;
+	}
+
+	Contact *contact     = PushContact(contacts, pair, fixture_a, fixture_b);
+	contact->point       = a_pos - (dist + a.radius) * normal;
+	contact->normal      = normal;
+	contact->penetration = -dist;
+
+	return 1;
+}
+
+// todo: verify
+uint LineVsCircle(const TFixture<Line> *fixture_a, const TFixture<Circle> *fixture_b, Rigid_Body_Pair pair, Contact_List *contacts) {
+	return CircleVsLine(fixture_b, fixture_a, { pair.bodies[1], pair.bodies[0] }, contacts);
+}
+
+// todo: verify
+uint CapsuleVsLine(const TFixture<Capsule> *fixture_a, const TFixture<Line> *fixture_b, Rigid_Body_Pair pair, Contact_List *contacts) {
+	const Capsule &a = fixture_a->payload;
+	const Line &b    = fixture_b->payload;
+
+	Vec2 centers[2];
+	centers[0]  = LocalToWorld(pair.bodies[0], a.centers[0]);
+	centers[1]  = LocalToWorld(pair.bodies[0], a.centers[1]);
+	Vec2 normal = LocalDirToWorld(pair.bodies[1], b.normal);
+
+	uint contact_count = 0;
+
+	for (Vec2 center : centers) {
+		float perp_dist = DotProduct(b.normal, center);
+		float dist      = perp_dist - a.radius - b.offset;
+
+		if (dist <= 0) {
+			Contact *contact     = PushContact(contacts, pair, fixture_a, fixture_b);
+			contact->point       = center - (dist + a.radius) * normal;
+			contact->normal      = normal;
+			contact->penetration = -dist;
+
+			contact_count += 1;
+		}
+	}
+
+	return contact_count;
+}
+
+// todo: verify
+uint LineVsCapsule(const TFixture<Line> *fixture_a, const TFixture<Capsule> *fixture_b, Rigid_Body_Pair pair, Contact_List *contacts) {
+	return CapsuleVsLine(fixture_b, fixture_a, { pair.bodies[1], pair.bodies[0] }, contacts);
+}
+
+uint LineVsPolygon(const TFixture<Line> *fixture_a, const TFixture<Polygon> *fixture_b, Rigid_Body_Pair pair, Contact_List *contacts) {
+	const Line &a    = fixture_a->payload;
+	const Polygon &b = fixture_b->payload;
+
+	const Transform2d &tb = pair.bodies[1]->transform;
+
+	Vec2 normal = LocalDirToWorld(pair.bodies[0], a.normal);
+	normal = WorldDirToLocal(tb, normal);
+
+	Line_Segment edge = FurthestEdge(b, -normal);
+
+	Vec2 vertices[] = { edge.a, edge.b };
+
+	uint count = 0;
+	for (Vec2 vertex : vertices) {
+		float perp = DotProduct(normal, vertex);
+		float dist = perp - a.offset;
+
+		if (dist <= 0.0f) {
+			Contact *contact     = PushContact(contacts, pair, fixture_a, fixture_b);
+			contact->point       = LocalToWorld(tb, vertex - dist * normal);
+			contact->normal      = LocalDirToWorld(tb, normal);
+			contact->penetration = -dist;
+
+			count += 1;
+		}
+	}
+
+	return count;
+}
+
+// todo: verify
+uint CircleVsCapsule(const TFixture<Circle> *fixture_a, const TFixture<Capsule> *fixture_b, Rigid_Body_Pair pair, Contact_List *contacts) {
+	const Circle &a  = fixture_a->payload;
+	const Capsule &b = fixture_b->payload;
+
+	Vec2 point = LocalToWorld(pair.bodies[0], a.center);
+
+	// Transform into Capsule's local space
+	point = WorldToLocal(pair.bodies[1], point);
+
+	Vec2 closest = NearestPointInLineSegment(point, b.centers[0], b.centers[1]);
+	float dist2  = LengthSq(closest - point);
+	float radius = a.radius + b.radius;
+
+	if (dist2 > radius * radius) {
+		return 0;
+	}
+
+	Vec2 midline = closest - point;
+
+	float length;
+	Vec2  normal;
+
+	if (dist2) {
+		length = SquareRoot(dist2);
+		normal = midline / length;
+	} else {
+		// Degenerate case (centers of circles are overlapping)
+		length = 0;
+		normal = Vec2(0, 1); // arbritray normal
+	}
+
+	float factor       = a.radius / radius;
+	Vec2 contact_point = point + factor * midline;
+
+	Contact *contact     = PushContact(contacts, pair, fixture_a, fixture_b);
+	contact->point       = LocalToWorld(pair.bodies[1], contact_point);
+	contact->normal      = LocalDirToWorld(pair.bodies[1], normal);
+	contact->penetration = radius - length;
+
+	return 1;
+}
+
+// todo: verify
+uint CapsuleVsCircle(const TFixture<Capsule> *fixture_a, const TFixture<Circle> *fixture_b, Rigid_Body_Pair pair, Contact_List *contacts) {
+	return CircleVsCapsule(fixture_b, fixture_a, { pair.bodies[1], pair.bodies[0] }, contacts);
+}
+
+struct Farthest_Edge {
+	Vec2 vector;
+	Vec2 points[2];
+	Vec2 max;
+};
+
+static Farthest_Edge FindFarthestEdge(const Polygon &polygon, Vec2 normal) {
+	const Vec2 *vertices = polygon.vertices;
+	uint count = polygon.count;
+
+	float max   = DotProduct(normal, vertices[0]);
+	uint best_i = 0;
+
+	for (uint i = 1; i < count; ++i) {
+		float proj = DotProduct(normal, vertices[i]);
+		if (proj > max) {
+			max    = proj;
+			best_i = i;
+		}
+	}
+
+	Vec2 v  = vertices[best_i];
+	Vec2 v0 = best_i ? vertices[best_i - 1] : vertices[count - 1];
+	Vec2 v1 = best_i + 1 < count ? vertices[best_i + 1] : vertices[0];
+
+	Vec2 l = NormalizeZ(v - v0);
+	Vec2 r = NormalizeZ(v - v1);
+
+	Farthest_Edge  edge;
+
+	if (DotProduct(r, normal) <= DotProduct(l, normal)) {
+		edge.vector    = r;
+		edge.points[0] = v0;
+		edge.points[1] = v;
+		edge.max       = v;
+	} else {
+		edge.vector    = l;
+		edge.points[0] = v;
+		edge.points[1] = v1;
+		edge.max       = v;
+	}
+
+	return edge;
+}
+
+// @TODO: optimize this procedure's use case
+static bool ClipPoints(Vec2 points[2], Vec2 a, Vec2 b) {
+	Vec2 v1 = points[0];
+	Vec2 v2 = points[1];
+
+	Vec2 dir = NormalizeZ(b - a);
+
+	float min = DotProduct(dir, a);
+	float max = DotProduct(dir, b);
+
+	float d1 = DotProduct(dir, v1);
+	float d2 = DotProduct(dir, v2);
+
+	float d = d1 + d2;
+	if (d == 0) return false;
+
+	Vec2 t = (v2 - v1) / d;
+	points[0] = v1 + t * min;
+	points[1] = v1 + t * max;
+
+	return true;
+}
+
+// todo: verify
+uint PolygonVsPolygon(const TFixture<Polygon> *fixture_a, const TFixture<Polygon> *fixture_b, Rigid_Body_Pair pair, Contact_List *contacts) {
+	const Polygon &a = fixture_a->payload;
+	const Polygon &b = fixture_b->payload;
+
+	const Transform2d &ta = pair.bodies[0]->transform;
+	const Transform2d &tb = pair.bodies[1]->transform;
+
+	MTV mtv;
+	if (!SeparateAxis(a, ta, b, tb, &mtv))
+		return 0;
+
+	Farthest_Edge e1 = FindFarthestEdge(a, WorldDirToLocal(ta, mtv.normal));
+	Farthest_Edge e2 = FindFarthestEdge(b, WorldDirToLocal(tb, -mtv.normal));
+
+	e1.vector    = LocalDirToWorld(ta, e1.vector);
+	e1.points[0] = LocalToWorld(ta, e1.points[0]);
+	e1.points[1] = LocalToWorld(ta, e1.points[1]);
+
+	e2.vector    = LocalDirToWorld(tb, e2.vector);
+	e2.points[0] = LocalToWorld(tb, e2.points[0]);
+	e2.points[1] = LocalToWorld(tb, e2.points[1]);
+
+	Farthest_Edge reference, incident;
+	bool flip = false;
+
+	if (DotProduct(e1.vector, mtv.normal) <= DotProduct(e2.vector, -mtv.normal)) {
+		reference = e1;
+		incident  = e2;
+	} else {
+		reference = e2;
+		incident  = e1;
+		flip      = true;
+	}
+
+	Vec2 points[2] = { incident.points[0], incident.points[1] };
+
+	if (!ClipPoints(points, reference.points[0], reference.points[1]))
+		return false;
+
+	Vec2 normal = PerpendicularVector(reference.points[0], reference.points[1]);
+
+	if (flip) normal = -normal;
+	normal = NormalizeZ(normal);
+
+	float max = DotProduct(normal, reference.max);
+
+	uint count = 0;
+
+	float penetration = DotProduct(normal, points[0]);
+	if (penetration <= max) {
+		Contact *contact = PushContact(contacts, pair, fixture_a, fixture_b);
+
+		contact->normal      = mtv.normal;
+		contact->point       = points[0];
+		contact->penetration = penetration;
+
+		count += 1;
+	}
+
+	penetration = DotProduct(normal, points[1]);
+	if (penetration <= max) {
+		Contact *contact = PushContact(contacts, pair, fixture_a, fixture_b);
+		
+		contact->normal      = mtv.normal;
+		contact->point       = points[1];
+		contact->penetration = penetration;
+
+		count += 1;
+	}
+
+	return count;
+}
+
+uint CircleVsPolygon(const TFixture<Circle> *fixture_a, const TFixture<Polygon> *fixture_b, Rigid_Body_Pair pair, Contact_List *contacts) {
+	const Circle &a  = fixture_a->payload;
+	const Polygon &b = fixture_b->payload;
+
+	Vec2 p = LocalToWorld(pair.bodies[0], a.center);
+	p = WorldToLocal(pair.bodies[1], p);
+
+	if (IsNull(p)) {
+		// degenerate case, using arbritrary search direction
+		p = Vec2(0, -1);
+	}
+
+	Line_Segment edge = FurthestEdge(b, -p);
+
+	if (!IsTriangleClockWise(Vec2(0), edge.a, edge.b)) {
+		// Circle's center is outside the polygon
+		Vec2 point  = NearestPoint(Vec2(0), edge);
+		float dist2 = LengthSq(point);
+
+		if (dist2 > a.radius * a.radius) {
+			return 0;
+		}
+
+		Vec2 normal = PerpendicularVector(edge.a, edge.b);
+		normal      = NormalizeZ(normal);
+
+		float dist = SquareRoot(dist2);
+
+		Contact *contact     = PushContact(contacts, pair, fixture_a, fixture_b);
+		contact->point       = LocalToWorld(pair.bodies[1]->transform, point);
+		contact->normal      = LocalDirToWorld(pair.bodies[1]->transform, normal);
+		contact->penetration = a.radius - dist;
+
+		return 1;
+	}
+
+	// Circle's center is inside the polygon
+	Vec2 point = NearestPoint(Vec2(0), edge);
+	float dist = Length(point);
+
+	Vec2 normal = PerpendicularVector(edge.a, edge.b);
+	normal      = NormalizeZ(normal);
+
+	Contact *contact     = PushContact(contacts, pair, fixture_a, fixture_b);
+	contact->point       = LocalToWorld(pair.bodies[1]->transform, point);
+	contact->normal      = LocalDirToWorld(pair.bodies[1]->transform, normal);
+	contact->penetration = a.radius + dist;
+
+	return 1;
+}
+
+uint CapsuleVsCapsule(const TFixture<Capsule> *fixture_a, const TFixture<Capsule> *fixture_b, Rigid_Body_Pair pair, Contact_List *contacts) {
+	const Capsule &a = fixture_a->payload;
+	const Capsule &b = fixture_b->payload;
+
+	const Transform2d &ta = pair.bodies[0]->transform;
+	const Transform2d &tb = pair.bodies[1]->transform;
+
+	Line_Segment l1, l2;
+	l1.a = LocalToWorld(ta, a.centers[0]);
+	l1.b = LocalToWorld(ta, a.centers[1]);
+	l2.a = LocalToWorld(tb, b.centers[0]);
+	l2.b = LocalToWorld(tb, b.centers[1]);
+
+	Line_Segment points = NearestPointsInLineSegments(l1, l2);
+
+	Vec2  midline = points.b - points.a;
+	float dist2   = LengthSq(midline);
+	float radius  = a.radius + b.radius;
+
+	if (dist2 > radius * radius) {
+		return 0;
+	}
+
+	if (Determinant(l1.b - l1.a, l2.b - l2.a) != 0.0f) {
+		// Capsules are not parallelly aligned
+		if (dist2) {
+			// Capsules are not overlapping
+			float dist = SquareRoot(dist2);
+
+			float factor       = a.radius / radius;
+			Vec2 contact_point = points.a + factor * midline;
+
+			Contact *contact     = PushContact(contacts, pair, fixture_a, fixture_b);
+			contact->point       = contact_point;
+			contact->normal      = midline / dist;
+			contact->penetration = radius - dist;
+
+			return 1;
+		}
+
+		// Capsules are overlapping
+
+		Vec2 normal;
+		float penetration;
+		if (LengthSq(l1.b - l1.a) >= LengthSq(l2.b - l2.a)) {
+			normal = PerpendicularVector(l1.a, l1.b);
+			normal = NormalizeZ(normal);
+
+			if (DotProduct(tb.pos - ta.pos, normal) < 0.0f) {
+				// face the normal from fixture a to fixture b
+				normal = -normal;
+			}
+
+			penetration = b.radius;
+		} else {
+			normal = PerpendicularVector(l2.a, l2.b);
+			normal = NormalizeZ(normal);
+
+			if (DotProduct(tb.pos - ta.pos, normal) < 0.0f) {
+				// face the normal from fixture a to fixture b
+				normal = -normal;
+			}
+
+			penetration = a.radius;
+		}
+
+		penetration += Absolute(DotProduct(points.a, normal));
+
+		Contact *contact     = PushContact(contacts, pair, fixture_a, fixture_b);
+		contact->point       = points.a;
+		contact->normal      = normal;
+		contact->penetration = penetration;
+
+		return 1;
+	}
+
+	// Capsules are parallelly aligned
+
+	Vec2 normal = PerpendicularVector(l1.b, l1.a);
+	normal = NormalizeZ(normal);
+
+	if (DotProduct(tb.pos - ta.pos, normal) < 0.0f) {
+		// face the normal from fixture a to fixture b
+		normal = -normal;
+	}
+
+	float penetration = radius - SquareRoot(dist2);
+
+	Vec2 contact_points[] = { l2.a, l2.b };
+	if (!ClipPoints(contact_points, l1.a, l1.b))
+		return false;
+
+	for (int i = 0; i < 2; ++i) {
+		Contact *contact     = PushContact(contacts, pair, fixture_a, fixture_b);
+		contact->point       = contact_points[i] - 0.5f * penetration * normal;
+		contact->normal      = normal;
+		contact->penetration = penetration;
+	}
+
+	return 2;
+}
+
+uint CapsuleVsPolygon(const TFixture<Capsule> *fixture_a, const TFixture<Polygon> *fixture_b, Rigid_Body_Pair pair, Contact_List *contacts) {
+	const Capsule &a = fixture_a->payload;
+	const Polygon &b = fixture_b->payload;
+
+	const Transform2d &ta = pair.bodies[0]->transform;
+	const Transform2d &tb = pair.bodies[1]->transform;
+
+	Vec2 points[2];
+	if (GilbertJohnsonKeerthi(Line_Segment{ a.centers[0], a.centers[1] }, ta, b, tb, points)) {
+		// capsule's line does not intersect the polygon (shallow case)
+		float dist2 = LengthSq(points[1] - points[0]);
+
+		if (dist2 > a.radius * a.radius) {
+			return 0;
+		}
+
+		Vec2 normal = NormalizeZ(points[1] - points[0]);
+
+		float dist = SquareRoot(dist2);
+
+		// todo: handle stacking here
+
+		Unimplemented();
+
+		Contact *contact     = PushContact(contacts, pair, fixture_a, fixture_b);
+		contact->point       = points[1];
+		contact->normal      = normal;
+		contact->penetration = a.radius - dist;
+
+		return 1;
+	}
+
+	Unimplemented();
+
+	return 0;
+}
+
+//
+//
+//
 
 int Main(int argc, char **argv) {
 	PL_ThreadCharacteristics(PL_THREAD_GAMES);
@@ -946,7 +1618,8 @@ int Main(int argc, char **argv) {
 			}
 
 			if (e.kind == PL_EVENT_CONTROLLER_THUMB_LEFT) {
-				controller.axis = Vec2(e.controller.thumb.x, e.controller.thumb.y);
+				if (e.window == window)
+					controller.axis = Vec2(e.controller.thumb.x, e.controller.thumb.y);
 			}
 
 			if (e.kind == PL_EVENT_CURSOR) {
@@ -1017,8 +1690,8 @@ int Main(int argc, char **argv) {
 			Contact contact;
 			for (Rigid_Body &body : bodies) {
 				if (body.position.y <= ground.position.y) {
-					contact.bodies[0]   = &body;
-					contact.bodies[1]   = &ground;
+					contact.pair.bodies[0]   = &body;
+					contact.pair.bodies[1]   = &ground;
 					contact.normal      = Vec2(0, 1);
 					contact.restitution = 0.5f;
 					contact.penetration = ground.position.y - body.position.y;
@@ -1088,8 +1761,102 @@ int Main(int argc, char **argv) {
 		Mat4 camera_transform = Translation(Vec3(camera_pos, 0)) * Scale(Vec3(camera_dist, camera_dist, 1.0f));
 		Mat4 world_transform  = Inverse(camera_transform);
 
+		// TODO: replace mat4 with transform2d in renderer
 		R_PushTransform(renderer, world_transform);
+		R_DrawCircle(renderer, cursor_cam_pos, 0.1f, Vec4(1));
 
+		Capsule capsule;
+		capsule.centers[1] = Vec2(1, 0);
+		capsule.centers[0] = Vec2(2, 2);
+		capsule.radius = 1;
+
+		Line_Segment line;
+		line.a = Vec2(-1, -3);
+		line.b = Vec2(1, 1);
+
+		Circle circle;
+		circle.center = Vec2(1, 1);
+		circle.radius = 1.5f;
+
+		Rect rect;
+		rect.center = Vec2(-1, 1);
+		rect.half_size = Vec2(1, 2);
+
+		Vec2 polygon[5];
+		polygon[0] = Vec2(2, 0);
+		polygon[1] = Vec2(0, 2);
+		polygon[2] = Vec2(-2, 0);
+		polygon[3] = Vec2(-1, -2);
+		polygon[4] = Vec2(1, -2);
+
+		Vec2 point = Vec2(0, 0);
+
+		//for (auto &v : polygon) v += Vec2(2, 1);
+		Transform2d shapea_t2d;
+		shapea_t2d.rot = Identity2x2();
+		shapea_t2d.pos = cursor_cam_pos;
+
+		Transform2d shapeb_t2d;
+		shapeb_t2d.rot = Rotation2x2(DegToRad(15));
+		shapeb_t2d.pos = Vec2(0);
+
+		Vec4 color = Vec4(1);
+
+		//point = NearestPointInTriangle(cursor_cam_pos, polygon[0], polygon[1], polygon[2]);
+
+		auto &shape_a = polygon;
+		auto &shape_b = polygon;
+
+		Vec2 points[2] = {};
+		if (GilbertJohnsonKeerthi(shape_a, shapea_t2d, shape_b, shapeb_t2d, points))
+			R_DrawLine(renderer, points[0], points[1], Vec4(1, 1, 0, 1));
+		else
+			color = Vec4(1, 1, 0, 1);
+
+		//R_DrawTriangleOutline(renderer, simplex.points[0].difference, simplex.points[1].difference, simplex.points[2].difference, Vec4(1, 0, 0, 1));
+		//R_DrawTriangleOutline(renderer, simplex.points[0].support[0], simplex.points[1].support[0], simplex.points[2].support[0], Vec4(1, 1, 0, 1));
+		//R_DrawTriangleOutline(renderer, simplex.points[0].support[1], simplex.points[1].support[1], simplex.points[2].support[1], Vec4(1, 0, 1, 1));
+
+		R_PushTransform(renderer, Translation(Vec3(shapea_t2d.pos, 0.0f)) * RotationZ(shapea_t2d.rot.m[0], shapea_t2d.rot.m[2]));
+		//R_DrawCircle(renderer, shape_a, 0.1f, color);
+		//R_DrawLine(renderer, line.a, line.b, color);
+		//R_DrawRectCenteredOutline(renderer, rect.center, 2.0f * rect.half_size, color);
+		//R_DrawCircleOutline(renderer, circle.center, circle.radius, color);
+
+		//R_DrawCircle(renderer, point, 0.2f, color);
+		//R_DrawLine(renderer, line.a, line.b, color);
+
+#if 0
+		Vec2 dir = capsule.centers[1] - capsule.centers[0];
+		float angle = atan2f(dir.y, dir.x);
+		R_ArcTo(renderer, capsule.centers[0], capsule.radius, capsule.radius, angle + TAU, angle + 3 * TAU);
+		R_ArcTo(renderer, capsule.centers[1], capsule.radius, capsule.radius, angle - TAU, angle + TAU);
+		R_DrawPathStroked(renderer, color, true);
+#endif
+		R_DrawPolygonOutline(renderer, polygon, 5, color);
+		R_PopTransform(renderer);
+
+		R_PushTransform(renderer, Translation(Vec3(shapeb_t2d.pos, 0.0f)) * RotationZ(shapeb_t2d.rot.m[0], shapeb_t2d.rot.m[2]));
+#if 0
+		dir = capsule.centers[1] - capsule.centers[0];
+		angle = atan2f(dir.y, dir.x);
+		R_ArcTo(renderer, capsule.centers[0], capsule.radius, capsule.radius, angle + TAU, angle + 3 * TAU);
+		R_ArcTo(renderer, capsule.centers[1], capsule.radius, capsule.radius, angle - TAU, angle + TAU);
+		R_DrawPathStroked(renderer, color, true);
+#endif
+		//R_DrawLine(renderer, line.a, line.b, color);
+		//R_DrawCircle(renderer, shape_b, 0.1f, color);
+		R_DrawPolygonOutline(renderer, polygon, 5, color);
+		//R_DrawCircleOutline(renderer, circle.center, circle.radius, color);
+		//R_DrawRectCenteredOutline(renderer, rect.center, 2.0f * rect.half_size, color);
+		R_PopTransform(renderer);
+
+		//R_DrawCircle(renderer, point, 0.1f, Vec4(1, 1, 0, 1));
+		//R_DrawLine(renderer, Vec2(0), cursor_cam_pos, Vec4(1));
+		//R_DrawLine(renderer, another_line.a, another_line.b, Vec4(1));
+
+		//R_DrawCircle(renderer, nearest_points.a, 0.1f, Vec4(1, 1, 0, 1));
+		//R_DrawCircle(renderer, nearest_points.b, 0.1f, Vec4(1, 1, 0, 1));
 
 		Vec2 render_offset = Vec2(0);
 
@@ -1113,7 +1880,9 @@ int Main(int argc, char **argv) {
 
 		//Mat4 transform = Translation(Vec3(boat.position, 0.0f)) * RotationZ(Vec2Arg(boat.orientation)) * Translation(Vec3(-boat.position, 0.0f));
 
-		R_PushTransform(renderer, boat.transform);
+		Mat4 transform = Translation(Vec3(boat.transform.pos, 0.0f)) * RotationZ(Vec2Arg(boat.orientation));
+
+		R_PushTransform(renderer, transform);
 
 		R_PathTo(renderer, Vec2(boat_half_width_upper, boat_half_height));
 		R_PathTo(renderer, Vec2(-boat_half_width_upper, boat_half_height));

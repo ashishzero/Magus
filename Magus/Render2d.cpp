@@ -1087,8 +1087,19 @@ void R_PathTo(R_Renderer2d *r2, Vec2 a) {
 	Append(&r2->path, r2->allocator, a);
 }
 
+static float R_NormalizeAngle(float angle) {
+	while (angle < 0.0f) {
+		angle += 2 * PI;
+	}
+	while (angle > 2 * PI) {
+		angle -= 2 * PI;
+	}
+	return angle;
+}
+
 void R_ArcTo(R_Renderer2d *r2, Vec2 position, float radius_a, float radius_b, float theta_a, float theta_b, int segments) {
-	Assert(theta_a >= 0 && theta_a <= PI * 2 && theta_b >= 0 && theta_b <= PI * 2);
+	theta_a = R_NormalizeAngle(theta_a);
+	theta_b = R_NormalizeAngle(theta_b);
 
 	int first_index = (int)((0.5f * theta_a * PI_INVERSE) * (float)(MAX_CIRCLE_SEGMENTS)+0.5f);
 	int last_index = (int)((0.5f * theta_b * PI_INVERSE) * (float)(MAX_CIRCLE_SEGMENTS)+0.5f);
@@ -1164,7 +1175,10 @@ void R_DrawPathStroked(R_Renderer2d *r2, Vec4 color, bool closed, float z) {
 		return;
 	}
 
-	Assert(r2->path.count == 2 ? !closed : true);
+	if (r2->path.count == 2 && closed) {
+		Reset(&r2->path);
+		return;
+	}
 
 	int points_count = (int)r2->path.count;
 	int vertex_count = points_count * 2;

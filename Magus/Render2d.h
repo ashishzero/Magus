@@ -24,7 +24,7 @@ struct R_Vertex2d {
 };
 
 typedef uint32_t R_Index2d;
-typedef Rect     R_Rect;
+typedef Region   R_Rect;
 
 struct R_Camera2d {
 	float left;

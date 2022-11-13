@@ -6,7 +6,7 @@ struct R_Font_Glyph {
 	float    advance;
 	Vec2     offset;
 	Vec2     dimension;
-	Rect     uv;
+	Region   uv;
 };
 
 struct R_Texture;

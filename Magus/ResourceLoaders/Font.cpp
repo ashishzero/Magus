@@ -227,7 +227,7 @@ R_Font *LoadFont(M_Arena *arena, const R_Font_Config &config, float height) {
 		int advance, left_side_bearing;
 		stbtt_GetGlyphHMetrics(font_info, glyph_index, &advance, &left_side_bearing);
 
-		Rect uv;
+		Region uv;
 		uv.min = Vec2((float)rect->x / (float)texture_width, (float)rect->y / (float)texture_height);
 		uv.max = Vec2((float)(rect->x + rect->w - 1) / (float)texture_width, (float)(rect->y + rect->h - 1) / (float)texture_height);
 
@@ -256,7 +256,7 @@ R_Font *LoadFont(M_Arena *arena, const R_Font_Config &config, float height) {
 		float box_width  = height * oversample_h * 0.5f;
 		float box_height = height * oversample_v * 0.7f;
 
-		Rect uv = {};
+		Region uv = {};
 		uv.min = Vec2((float)(texture_width - 1) / (float)(texture_width), (float)(texture_height - 1) / (float)(texture_height));
 		uv.max = Vec2(1.0f, 1.0f);
 
