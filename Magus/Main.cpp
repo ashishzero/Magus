@@ -1020,7 +1020,7 @@ void CollideCircleCapsule(const TFixture<Circle> *fixture_a, const TFixture<Caps
 }
 
 void CollideCirclePolygon(const TFixture<Circle> *fixture_a, const TFixture<Polygon> *fixture_b, Rigid_Body_Pair pair, Contact_List *contacts) {
-	const Circle &a = fixture_a->payload;
+	const Circle &a  = fixture_a->payload;
 	const Polygon &b = fixture_b->payload;
 
 	const Transform2d &ta = pair.bodies[0]->transform;
@@ -1037,9 +1037,9 @@ void CollideCirclePolygon(const TFixture<Circle> *fixture_a, const TFixture<Poly
 		float dist = SquareRoot(dist2);
 		Assert(dist != 0);
 
-		Contact *contact = PushContact(contacts, pair, fixture_a, fixture_b);
-		contact->point = points[1];
-		contact->normal = dir / dist;
+		Contact *contact     = PushContact(contacts, pair, fixture_a, fixture_b);
+		contact->point       = points[1];
+		contact->normal      = dir / dist;
 		contact->penetration = a.radius - dist;
 
 		return;
@@ -1052,7 +1052,7 @@ void CollideCirclePolygon(const TFixture<Circle> *fixture_a, const TFixture<Poly
 	uint best_i = b.count - 1;
 	uint best_j = 0;
 
-	Vec2 point = NearestPointInLineSegment(center, b.vertices[b.count - 1], b.vertices[0]);
+	Vec2 point  = NearestPointInLineSegment(center, b.vertices[b.count - 1], b.vertices[0]);
 	float dist2 = LengthSq(point - center);
 
 	for (uint i = 0; i < b.count - 1; ++i) {
@@ -1060,8 +1060,8 @@ void CollideCirclePolygon(const TFixture<Circle> *fixture_a, const TFixture<Poly
 		float new_dist2 = LengthSq(next_point - center);
 
 		if (new_dist2 < dist2) {
-			dist2 = new_dist2;
-			point = next_point;
+			dist2  = new_dist2;
+			point  = next_point;
 			best_i = i;
 			best_j = i + 1;
 		}
@@ -1077,41 +1077,36 @@ void CollideCirclePolygon(const TFixture<Circle> *fixture_a, const TFixture<Poly
 		normal = NormalizeZ(normal);
 	}
 
-	Contact *contact = PushContact(contacts, pair, fixture_a, fixture_b);
-	contact->point = LocalToWorld(tb, point);
-	contact->normal = LocalDirectionToWorld(tb, normal);
+	Contact *contact     = PushContact(contacts, pair, fixture_a, fixture_b);
+	contact->point       = LocalToWorld(tb, point);
+	contact->normal      = LocalDirectionToWorld(tb, normal);
 	contact->penetration = a.radius + dist;
-
-	return;
 }
 
-//
-//
-//
-
-// todo: verify
-uint CircleVsLine(const TFixture<Circle> *fixture_a, const TFixture<Line> *fixture_b, Rigid_Body_Pair pair, Contact_List *contacts) {
+void CollideCircleLine(const TFixture<Circle> *fixture_a, const TFixture<Line> *fixture_b, Rigid_Body_Pair pair, Contact_List *contacts) {
 	const Circle &a = fixture_a->payload;
 	const Line &b   = fixture_b->payload;
 
-	Vec2 a_pos  = LocalToWorld(pair.bodies[0], a.center);
+	Vec2 a_pos = LocalToWorld(pair.bodies[0], a.center);
 	Vec2 normal = LocalDirectionToWorld(pair.bodies[1], b.normal);
 
-	float perp_dist = DotProduct(b.normal, a_pos);
+	float perp_dist = DotProduct(normal, a_pos);
 
 	float dist = perp_dist - a.radius - b.offset;
 
 	if (dist > 0) {
-		return 0;
+		return;
 	}
 
 	Contact *contact     = PushContact(contacts, pair, fixture_a, fixture_b);
 	contact->point       = a_pos - (dist + a.radius) * normal;
 	contact->normal      = normal;
 	contact->penetration = -dist;
-
-	return 1;
 }
+
+//
+//
+//
 
 // todo: verify
 uint CapsuleVsLine(const TFixture<Capsule> *fixture_a, const TFixture<Line> *fixture_b, Rigid_Body_Pair pair, Contact_List *contacts) {
@@ -1473,6 +1468,21 @@ void DrawShape(R_Renderer2d *renderer, const Line_Segment &line, Vec4 color = Ve
 	R_PopTransform(renderer);
 }
 
+void DrawShape(R_Renderer2d *renderer, const Line &line, Vec4 color = Vec4(1), const Transform2d &transform = { Identity2x2(), Vec2(0) }) {
+	Vec2 perp = Vec2(-line.normal.y, line.normal.x);
+
+	float length = 20.0f;
+
+	Vec2 a = -perp * length + line.normal * line.offset;
+	Vec2 b = perp * length + line.normal * line.offset;
+
+	Line_Segment segment = { a,b };
+	Transform2d vt;
+	vt.rot = transform.rot;
+	vt.pos = Vec2(0);
+	DrawShape(renderer, segment, color, vt);
+}
+
 void DrawShape(R_Renderer2d *renderer, const Rect &rect, Vec4 color = Vec4(1), const Transform2d &transform = { Identity2x2(), Vec2(0) }) {
 	const Mat4 &transform4 = Translation(Vec3(transform.pos, 0.0f)) * RotationZ(transform.rot.m[0], transform.rot.m[2]);
 	R_PushTransform(renderer, transform4);
@@ -1807,7 +1817,7 @@ int Main(int argc, char **argv) {
 
 		/*
 				circle	capsule	polygon	line
-		circle    .      .        ?       ?
+		circle    .      .        .       .
 		capsule   x      ?        ?       ?
 		polygon   x      ?        ?       ?
 		line      x      x        x       x
@@ -1822,9 +1832,9 @@ int Main(int argc, char **argv) {
 		capsule.centers[0] = Vec2(1, 2);
 		capsule.radius = 1;
 
-		Line_Segment line;
-		line.a = Vec2(-1, -3);
-		line.b = Vec2(1, 1);
+		//Line_Segment line;
+		//line.a = Vec2(-1, -3);
+		//line.b = Vec2(1, 1);
 
 		Circle circle;
 		circle.center = Vec2(0, 1);
@@ -1833,6 +1843,10 @@ int Main(int argc, char **argv) {
 		Rect rect;
 		rect.center = Vec2(0, 0);
 		rect.half_size = Vec2(2, 1);
+
+		Line line;
+		line.normal = Normalize(Vec2(1, 1));
+		line.offset = 1;
 
 		Fixed_Polygon<5> polygon;
 		polygon.count = 5;
@@ -1852,18 +1866,19 @@ int Main(int argc, char **argv) {
 		Rigid_Body body2 = {};
 
 		Circle first_shape;
-		first_shape.center = Vec2(0);
+		first_shape.center = Vec2(0, 0);
 		first_shape.radius = 1;
 
-		auto &second_shape = capsule;
+		auto &second_shape = line;
 
 		body1.transform.pos = cursor_cam_pos;
-		body1.transform.rot = Rotation2x2(0.0f);
-		body2.transform.pos = Vec2(0, 0);
-		body2.transform.rot = Rotation2x2(0.0f);
+		body1.transform.rot = Rotation2x2(12.0f);
+		body2.transform.pos = Vec2(1, 0);
+		body2.transform.rot = Rotation2x2(DegToRad(30));
+
 
 		TFixture<Circle> fix1 = { FIXTURE_SHAPE_CIRCLE, first_shape };
-		TFixture<Capsule> fix2 = {FIXTURE_SHAPE_CAPSULE, second_shape};
+		TFixture<Line> fix2 = {FIXTURE_SHAPE_LINE, line};
 
 		DrawShape(renderer, first_shape, Vec4(1), body1.transform);
 		DrawShape(renderer, second_shape, Vec4(1), body2.transform);
@@ -1873,7 +1888,7 @@ int Main(int argc, char **argv) {
 		contacts.arena    = ThreadScratchpad();
 		contacts.fallback = {};
 
-		CollideCircleCapsule(&fix1, &fix2, {&body1, &body2}, &contacts);
+		CollideCircleLine(&fix1, &fix2, {&body1, &body2}, &contacts);
 
 		// origin
 		R_DrawRectCentered(renderer, Vec2(0), Vec2(0.1f), Vec4(1, 1, 0, 1));
