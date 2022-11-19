@@ -1646,6 +1646,11 @@ void R_DrawText(R_Renderer2d *r2, Vec3 pos, Vec4 color, String text, R_Font *fon
 	for (; start < end; ) {
 		start += R_UTF8ToCodepoint(start, end, &codepoint);
 
+		if (codepoint == '\n') {
+			render_pos.y -= font->height * factor;
+			continue;
+		}
+
 		R_Font_Glyph *glyph = R_FontFindGlyph(font, codepoint);
 
 		render_pos._0.xy = pos._0.xy + glyph->offset * factor;

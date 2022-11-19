@@ -906,6 +906,29 @@ Vec2 Project(const Polygon &polygon, const Transform2d &transform, Vec2 axis) {
 	return Vec2(min, max);
 }
 
+Vec2 ProjectPolygonToAxis(const Array_View<Vec2> vertices, Vec2 axis) {
+	float min = DotProduct(axis, vertices[0]);
+	float max = min;
+
+	for (ptrdiff_t i = 1; i < vertices.count; ++i) {
+		float p = DotProduct(axis, vertices[i]);
+		if (p < min)
+			min = p;
+		else if (p > max)
+			max = p;
+	}
+
+	return Vec2(min, max);
+}
+
+Vec2 ProjectPolygonToAxis(const Vec2 *vertices, uint count, Vec2 axis) {
+	return ProjectPolygonToAxis(Array_View<Vec2>(vertices, count), axis);
+}
+
+Vec2 ProjectPolygonToAxis(const Polygon &polygon, Vec2 axis) {
+	return ProjectPolygonToAxis(Array_View<Vec2>(polygon.vertices, polygon.count), axis);
+}
+
 //
 //
 //
@@ -1129,11 +1152,14 @@ void CollideCapsuleCapsule(const TFixture<Capsule> *fixture_a, const TFixture<Ca
 
 	float dist = SquareRoot(dist2);
 
-	Vec2 dir1 = NormalizeZ(l1.b - l1.a);
-	Vec2 dir2 = NormalizeZ(l2.b - l2.a);
+	Vec2 dir1 = l1.b - l1.a;
+	Vec2 dir2 = l2.b - l2.a;
 
 	float length1 = LengthSq(dir1);
 	float length2 = LengthSq(dir2);
+
+	dir1 = NormalizeZ(dir1);
+	dir2 = NormalizeZ(dir2);
 
 	if (Absolute(Determinant(dir1, dir2)) <= REAL_EPSILON) {
 		// Capsules are parallel
@@ -1142,18 +1168,18 @@ void CollideCapsuleCapsule(const TFixture<Capsule> *fixture_a, const TFixture<Ca
 			Line_Segment reference, incident;
 			Vec2 dir;
 
-			float i_radius;
+			float incident_r;
 
 			if (length1 >= length2) {
-				dir       = dir1;
-				reference = l1;
-				incident  = l2;
-				i_radius  = b.radius;
+				dir        = dir1;
+				reference  = l1;
+				incident   = l2;
+				incident_r = b.radius;
 			} else {
-				dir       = dir2;
-				reference = l2;
-				incident  = l1;
-				i_radius  = a.radius;
+				dir        = dir2;
+				reference  = l2;
+				incident   = l1;
+				incident_r = a.radius;
 			}
 
 			float min = DotProduct(dir, reference.a);
@@ -1174,11 +1200,13 @@ void CollideCapsuleCapsule(const TFixture<Capsule> *fixture_a, const TFixture<Ca
 				float penetration = radius - dist;
 				float inv_range   = 1.0f / (d2 - d1);
 
+				float factor = incident_r / radius;
+
 				Vec2 points[2];
 				points[0] = incident.a + (clipped_d1 - d1) * inv_range * (incident.b - incident.a);
 				points[1] = incident.a + (clipped_d2 - d1) * inv_range * (incident.b - incident.a);
-				points[0] = points[0] - 0.5f * normal * dist;
-				points[1] = points[1] - 0.5f * normal * dist;
+				points[0] = points[0] - factor * normal * dist;
+				points[1] = points[1] - factor * normal * dist;
 
 				for (int i = 0; i < 2; ++i) {
 					Contact *contact     = PushContact(contacts, pair, fixture_a, fixture_b);
@@ -1208,6 +1236,174 @@ void CollideCapsuleCapsule(const TFixture<Capsule> *fixture_a, const TFixture<Ca
 	contact->normal      = normal;
 	contact->penetration = radius - dist;
 }
+
+void CollideCapsulePolygon(const TFixture<Capsule> *fixture_a, const TFixture<Polygon> *fixture_b, Rigid_Body_Pair pair, Contact_List *contacts) {
+	const Capsule &a = fixture_a->payload;
+	const Polygon &b = fixture_b->payload;
+
+	const Transform2d &ta = pair.bodies[0]->transform;
+	const Transform2d &tb = pair.bodies[1]->transform;
+
+	float dist;
+
+	float        penetration;
+	Line_Segment edge;
+	Vec2         world_normal;
+	Vec2         world_points[2];
+
+	if (GilbertJohnsonKeerthi(Line_Segment{ a.centers[0], a.centers[1] }, ta, b, tb, world_points)) {
+		// capsule's line does not intersect the polygon (shallow case)
+		float dist2 = LengthSq(world_points[1] - world_points[0]);
+
+		if (dist2 > a.radius * a.radius) {
+			return;
+		}
+
+		dist = SquareRoot(dist2);
+		penetration = a.radius - dist;
+		edge = FurthestEdge(b, WorldToLocal(tb, world_points[1]));
+
+		world_normal = world_points[1] - world_points[0];
+
+		if (IsNull(world_normal)) {
+			world_normal = PerpendicularVector(edge.a, edge.b);
+			world_normal = LocalDirectionToWorld(tb, world_normal);
+		}
+
+		world_normal = NormalizeZ(world_normal);
+	} else {
+		Vec2 c0 = LocalToWorld(ta, a.centers[0]);
+		Vec2 c1 = LocalToWorld(ta, a.centers[1]);
+
+		c0 = WorldToLocal(tb, c0);
+		c1 = WorldToLocal(tb, c1);
+
+		uint best_i = b.count - 1;
+		uint best_j = 0;
+
+		Line_Segment best_points = NearestPointsInLineSegments(c0, c1, b.vertices[best_i], b.vertices[best_j]);
+		float best_dist2 = LengthSq(best_points.b - best_points.a);
+
+		for (uint next_i = 0; next_i < b.count - 1; ++next_i) {
+			uint next_j = next_i + 1;
+
+			Line_Segment next_points = NearestPointsInLineSegments(c0, c1, b.vertices[next_i], b.vertices[next_j]);
+			float next_dist2 = LengthSq(next_points.b - next_points.a);
+
+			if (next_dist2 < best_dist2) {
+				best_dist2  = next_dist2;
+				best_points = next_points;
+				best_i = next_i;
+				best_j = next_j;
+			}
+		}
+
+		Vec2 normal = PerpendicularVector(b.vertices[best_i], b.vertices[best_j]);
+		normal      = NormalizeZ(normal);
+
+		edge        = { b.vertices[best_i],b.vertices[best_j] };
+
+		float t;
+		if (LineLineIntersection(c0, c1, b.vertices[best_i], b.vertices[best_j], &t)) {
+			dist        = SquareRoot(best_dist2);
+			penetration = a.radius + dist;
+		} else {
+			float proj = DotProduct(normal, best_points.a - c0);
+			if (proj < 0.0f) {
+				penetration = a.radius - proj;
+			} else {
+				penetration = a.radius - DotProduct(normal, best_points.b - c1);
+			}
+			dist = 0.0f;
+		}
+
+		world_normal    = LocalDirectionToWorld(tb, normal);
+		world_points[0] = LocalToWorld(tb, best_points.a);
+		world_points[1] = LocalToWorld(tb, best_points.b);
+	}
+
+	Vec2 c0 = LocalToWorld(ta, a.centers[0]);
+	Vec2 c1 = LocalToWorld(ta, a.centers[1]);
+
+	Vec2 e0 = LocalToWorld(tb, edge.a);
+	Vec2 e1 = LocalToWorld(tb, edge.b);
+
+	Vec2 dir1 = c1 - c0;
+	Vec2 dir2 = e1 - e0;
+
+	float length1 = LengthSq(dir1);
+	float length2 = LengthSq(dir2);
+
+	dir1 = NormalizeZ(dir1);
+	dir2 = NormalizeZ(dir2);
+
+	if (Absolute(Determinant(dir1, dir2)) <= REAL_EPSILON) {
+		// capsule is parallel to some edge of polygon
+
+		if (length1 && length2) {
+			Line_Segment reference, incident;
+			Vec2 dir;
+
+			float factor;
+
+			if (length1 >= length2) {
+				dir       = dir1;
+				reference = { c0,c1 };
+				incident  = { e0,e1 };
+				factor    = 0.0f;
+			} else {
+				dir       = dir2;
+				reference = { e0,e1 };
+				incident  = { c0,c1 };
+				factor    = 1.0f;
+			}
+
+			float min = DotProduct(dir, reference.a);
+			float max = DotProduct(dir, reference.b);
+			float d1  = DotProduct(dir, incident.a);
+			float d2  = DotProduct(dir, incident.b);
+
+			// capsules is stacked
+			if (IsInRange(min, max, d1) || IsInRange(min, max, d2)) {
+				float clipped_d1 = Clamp(min, max, d1);
+				float clipped_d2 = Clamp(min, max, d2);
+
+				float inv_range   = 1.0f / (d2 - d1);
+
+				float offset = factor * Min(dist, a.radius);
+
+				world_points[0] = incident.a + (clipped_d1 - d1) * inv_range * (incident.b - incident.a);
+				world_points[1] = incident.a + (clipped_d2 - d1) * inv_range * (incident.b - incident.a);
+				world_points[0] = world_points[0] + offset * world_normal;
+				world_points[1] = world_points[1] + offset * world_normal;
+
+				for (int i = 0; i < 2; ++i) {
+					Contact *contact     = PushContact(contacts, pair, fixture_a, fixture_b);
+					contact->point       = world_points[i];
+					contact->normal      = world_normal;
+					contact->penetration = penetration;
+				}
+
+				return;
+			}
+		}
+	}
+
+	if (IsNull(world_normal)) {
+		// overlapping center
+		world_normal = Vec2(0, 1); // arbritrary normal
+	}
+
+	Contact *contact     = PushContact(contacts, pair, fixture_a, fixture_b);
+	contact->point       = world_points[1];
+	contact->normal      = world_normal;
+	contact->penetration = penetration;
+}
+
+static String_Builder frame_builder;
+
+#define DebugText(...) WriteFormatted(&frame_builder, __VA_ARGS__)
+
 
 //
 //
@@ -1440,43 +1636,6 @@ uint PolygonVsPolygon(const TFixture<Polygon> *fixture_a, const TFixture<Polygon
 	return count;
 }
 
-uint CapsuleVsPolygon(const TFixture<Capsule> *fixture_a, const TFixture<Polygon> *fixture_b, Rigid_Body_Pair pair, Contact_List *contacts) {
-	const Capsule &a = fixture_a->payload;
-	const Polygon &b = fixture_b->payload;
-
-	const Transform2d &ta = pair.bodies[0]->transform;
-	const Transform2d &tb = pair.bodies[1]->transform;
-
-	Vec2 points[2];
-	if (GilbertJohnsonKeerthi(Line_Segment{ a.centers[0], a.centers[1] }, ta, b, tb, points)) {
-		// capsule's line does not intersect the polygon (shallow case)
-		float dist2 = LengthSq(points[1] - points[0]);
-
-		if (dist2 > a.radius * a.radius) {
-			return 0;
-		}
-
-		Vec2 normal = NormalizeZ(points[1] - points[0]);
-
-		float dist = SquareRoot(dist2);
-
-		// todo: handle stacking here
-
-		Unimplemented();
-
-		Contact *contact     = PushContact(contacts, pair, fixture_a, fixture_b);
-		contact->point       = points[1];
-		contact->normal      = normal;
-		contact->penetration = a.radius - dist;
-
-		return 1;
-	}
-
-	Unimplemented();
-
-	return 0;
-}
-
 //
 //
 //
@@ -1533,6 +1692,7 @@ void DrawShape(R_Renderer2d *renderer, const Capsule &capsule, Vec4 color = Vec4
 	R_ArcTo(renderer, capsule.centers[0], capsule.radius, capsule.radius, angle + TAU, angle + 3 * TAU);
 	R_ArcTo(renderer, capsule.centers[1], capsule.radius, capsule.radius, angle - TAU, angle + TAU);
 	R_DrawPathStroked(renderer, color, true);
+	R_DrawLine(renderer, capsule.centers[0], capsule.centers[1], color);
 	R_PopTransform(renderer);
 }
 
@@ -1631,6 +1791,8 @@ int Main(int argc, char **argv) {
 	uint64_t counter  = PL_GetPerformanceCounter();
 	float frequency   = (float)PL_GetPerformanceFrequency();
 
+	float angle = 0.0f;
+
 	const float dt    = 1.0f / 60.0f;
 	float accumulator = dt;
 
@@ -1684,8 +1846,10 @@ int Main(int argc, char **argv) {
 
 			if (e.kind == PL_EVENT_KEY_PRESSED && e.key.id == PL_KEY_SPACE) {
 				if (!e.key.repeat) {
-					follow = !follow;
+					//follow = !follow;
+
 				}
+				angle += 0.5f;
 			}
 
 			if (e.kind == PL_EVENT_KEY_PRESSED && e.key.id == PL_KEY_RETURN) {
@@ -1822,16 +1986,6 @@ int Main(int argc, char **argv) {
 		R_NextFrame(renderer, R_Rect(0.0f, 0.0f, width, height));
 		R_SetPipeline(renderer, GetResource(pipeline));
 
-		R_CameraView(renderer, 0.0f, width, 0.0f, height, -1.0f, 1.0f);
-
-		String text = TmpFormat("%ms % FPS", frame_time_ms, (int)(1000.0f / frame_time_ms));
-		R_DrawText(renderer, Vec2(0.0f, height - 25.0f), Vec4(1), text);
-		R_DrawText(renderer, Vec2(0.0f, height - 50.0f), Vec4(1), TmpFormat("%", iterations));
-		//R_DrawText(renderer, Vec2(0.0f, height - 75.0f), Vec4(1), TmpFormat("Position %", actor.position));
-		//R_DrawText(renderer, Vec2(0.0f, height - 100.0f), Vec4(1), TmpFormat("Velocity %", actor.velocity));
-
-		/////////////////////////////////////////////////////////////////////////////
-
 		R_CameraView(renderer, aspect_ratio, cam_height);
 		R_SetLineThickness(renderer, 2.0f * cam_height / height);
 
@@ -1846,8 +2000,8 @@ int Main(int argc, char **argv) {
 		/*
 				circle	capsule	polygon	line
 		circle    .      .        .       .
-		capsule   x      .        ?       ?
-		polygon   x      ?        ?       ?
+		capsule   x      .        .       ?
+		polygon   x      x        ?       ?
 		line      x      x        x       x
 		*/
 
@@ -1895,22 +2049,23 @@ int Main(int argc, char **argv) {
 
 		Capsule first_shape;
 		first_shape.centers[0] = Vec2(-1, 0);
-		first_shape.centers[1] = Vec2(1, 0);
+		first_shape.centers[1] = Vec2(1, 1);
 		first_shape.radius = 0.5f;
 
 		auto &second_shape = capsule;
 
 		body1.transform.pos = cursor_cam_pos;
-		body1.transform.rot = Rotation2x2(DegToRad(45));
+		body1.transform.rot = Rotation2x2(DegToRad(10));
 		body2.transform.pos = Vec2(1, 0);
-		body2.transform.rot = Rotation2x2(DegToRad(45));
+		body2.transform.rot = Rotation2x2(DegToRad(20));
 
 
 		TFixture<Capsule> fix1 = { FIXTURE_SHAPE_CAPSULE, first_shape };
-		TFixture<Capsule> fix2 = {FIXTURE_SHAPE_LINE, second_shape };
+		TFixture<Capsule> fix2 = { FIXTURE_SHAPE_CAPSULE, second_shape };
 
 		DrawShape(renderer, first_shape, Vec4(1), body1.transform);
 		DrawShape(renderer, second_shape, Vec4(1), body2.transform);
+		//R_DrawLine(renderer, first_shape.centers[0], first_shape.centers[1], Vec4(1));
 
 		Contact_List contacts;
 		contacts.first    = nullptr;
@@ -1971,6 +2126,16 @@ int Main(int argc, char **argv) {
 #endif
 
 		R_PopTransform(renderer);
+
+		/////////////////////////////////////////////////////////////////////////////
+
+		R_CameraView(renderer, 0.0f, width, 0.0f, height, -1.0f, 1.0f);
+		String text = TmpFormat("%ms % FPS", frame_time_ms, (int)(1000.0f / frame_time_ms));
+
+		R_DrawText(renderer, Vec2(0.0f, height - 25.0f), Vec4(1, 1, 0, 1), text);
+		R_DrawText(renderer, Vec2(0.0f, height - 50.0f), Vec4(1), TmpBuildString(&frame_builder));
+
+		Reset(&frame_builder);
 
 		R_Viewport viewport;
 		viewport.y = viewport.x = 0;
