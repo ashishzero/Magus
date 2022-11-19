@@ -1110,7 +1110,7 @@ void CollideCircleLine(const TFixture<Circle> *fixture_a, const TFixture<Line> *
 	const Circle &a = fixture_a->payload;
 	const Line &b   = fixture_b->payload;
 
-	Vec2 a_pos = LocalToWorld(pair.bodies[0], a.center);
+	Vec2 a_pos  = LocalToWorld(pair.bodies[0], a.center);
 	Vec2 normal = LocalDirectionToWorld(pair.bodies[1], b.normal);
 
 	float perp_dist = DotProduct(normal, a_pos);
@@ -1400,17 +1400,7 @@ void CollideCapsulePolygon(const TFixture<Capsule> *fixture_a, const TFixture<Po
 	contact->penetration = penetration;
 }
 
-static String_Builder frame_builder;
-
-#define DebugText(...) WriteFormatted(&frame_builder, __VA_ARGS__)
-
-
-//
-//
-//
-
-// todo: verify
-uint CapsuleVsLine(const TFixture<Capsule> *fixture_a, const TFixture<Line> *fixture_b, Rigid_Body_Pair pair, Contact_List *contacts) {
+void CollideCapsuleLine(const TFixture<Capsule> *fixture_a, const TFixture<Line> *fixture_b, Rigid_Body_Pair pair, Contact_List *contacts) {
 	const Capsule &a = fixture_a->payload;
 	const Line &b    = fixture_b->payload;
 
@@ -1434,9 +1424,18 @@ uint CapsuleVsLine(const TFixture<Capsule> *fixture_a, const TFixture<Line> *fix
 			contact_count += 1;
 		}
 	}
-
-	return contact_count;
 }
+
+static String_Builder frame_builder;
+
+#define DebugText(...) WriteFormatted(&frame_builder, __VA_ARGS__)
+
+
+//
+//
+//
+
+// todo: verify
 
 uint LineVsPolygon(const TFixture<Line> *fixture_a, const TFixture<Polygon> *fixture_b, Rigid_Body_Pair pair, Contact_List *contacts) {
 	const Line &a    = fixture_a->payload;
@@ -2000,7 +1999,7 @@ int Main(int argc, char **argv) {
 		/*
 				circle	capsule	polygon	line
 		circle    .      .        .       .
-		capsule   x      .        .       ?
+		capsule   x      .        .       .
 		polygon   x      x        ?       ?
 		line      x      x        x       x
 		*/
@@ -2027,7 +2026,7 @@ int Main(int argc, char **argv) {
 		rect.half_size = Vec2(2, 1);
 
 		Line line;
-		line.normal = Normalize(Vec2(1, 1));
+		line.normal = Normalize(Vec2(0, 1));
 		line.offset = 1;
 
 		Fixed_Polygon<5> polygon;
@@ -2049,19 +2048,19 @@ int Main(int argc, char **argv) {
 
 		Capsule first_shape;
 		first_shape.centers[0] = Vec2(-1, 0);
-		first_shape.centers[1] = Vec2(1, 1);
+		first_shape.centers[1] = Vec2(1, 0);
 		first_shape.radius = 0.5f;
 
-		auto &second_shape = capsule;
+		auto &second_shape = line;
 
 		body1.transform.pos = cursor_cam_pos;
-		body1.transform.rot = Rotation2x2(DegToRad(10));
-		body2.transform.pos = Vec2(1, 0);
-		body2.transform.rot = Rotation2x2(DegToRad(20));
+		body1.transform.rot = Rotation2x2(DegToRad(angle));
+		body2.transform.pos = Vec2(0, 0);
+		body2.transform.rot = Rotation2x2(DegToRad(0));
 
 
 		TFixture<Capsule> fix1 = { FIXTURE_SHAPE_CAPSULE, first_shape };
-		TFixture<Capsule> fix2 = { FIXTURE_SHAPE_CAPSULE, second_shape };
+		TFixture<Line> fix2 = { FIXTURE_SHAPE_LINE, second_shape };
 
 		DrawShape(renderer, first_shape, Vec4(1), body1.transform);
 		DrawShape(renderer, second_shape, Vec4(1), body2.transform);
@@ -2072,7 +2071,7 @@ int Main(int argc, char **argv) {
 		contacts.arena    = ThreadScratchpad();
 		contacts.fallback = {};
 
-		CollideCapsuleCapsule(&fix1, &fix2, {&body1, &body2}, &contacts);
+		CollideCapsuleLine(&fix1, &fix2, {&body1, &body2}, &contacts);
 
 		// origin
 		R_DrawRectCentered(renderer, Vec2(0), Vec2(0.1f), Vec4(1, 1, 0, 1));
