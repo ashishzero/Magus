@@ -800,9 +800,15 @@ Contact *PushContact(Contact_List *contacts, Rigid_Body_Pair pair, const Fixture
 	return &contacts->fallback;
 }
 
-void CollideCircleCircle(const TFixture<Circle> *fixture_a, const TFixture<Circle> *fixture_b, Rigid_Body_Pair pair, Contact_List *contacts) {
-	const Circle &a = fixture_a->payload;
-	const Circle &b = fixture_b->payload;
+template <typename T>
+const T &FixtureShape(const Fixture *fixture) {
+	const TFixture<T> *typed = (const TFixture<T> *)fixture;
+	return typed->payload;
+}
+
+void CollideCircleCircle(const Fixture *fixture_a, const Fixture *fixture_b, Rigid_Body_Pair pair, Contact_List *contacts) {
+	const Circle &a = FixtureShape<Circle>(fixture_a);
+	const Circle &b = FixtureShape<Circle>(fixture_b);
 
 	Vec2 a_pos = LocalToWorld(pair.bodies[0], a.center);
 	Vec2 b_pos = LocalToWorld(pair.bodies[1], b.center);
@@ -835,9 +841,9 @@ void CollideCircleCircle(const TFixture<Circle> *fixture_a, const TFixture<Circl
 	contact->penetration = min_dist - length;
 }
 
-void CollideCircleCapsule(const TFixture<Circle> *fixture_a, const TFixture<Capsule> *fixture_b, Rigid_Body_Pair pair, Contact_List *contacts) {
-	const Circle &a = fixture_a->payload;
-	const Capsule &b = fixture_b->payload;
+void CollideCircleCapsule(const Fixture *fixture_a, const Fixture *fixture_b, Rigid_Body_Pair pair, Contact_List *contacts) {
+	const Circle &a  = FixtureShape<Circle>(fixture_a);
+	const Capsule &b = FixtureShape<Capsule>(fixture_b);
 
 	Vec2 point = LocalToWorld(pair.bodies[0], a.center);
 
@@ -880,9 +886,9 @@ void CollideCircleCapsule(const TFixture<Circle> *fixture_a, const TFixture<Caps
 	contact->penetration = radius - length;
 }
 
-void CollideCirclePolygon(const TFixture<Circle> *fixture_a, const TFixture<Polygon> *fixture_b, Rigid_Body_Pair pair, Contact_List *contacts) {
-	const Circle &a  = fixture_a->payload;
-	const Polygon &b = fixture_b->payload;
+void CollideCirclePolygon(const Fixture *fixture_a, const Fixture *fixture_b, Rigid_Body_Pair pair, Contact_List *contacts) {
+	const Circle &a  = FixtureShape<Circle>(fixture_a);
+	const Polygon &b = FixtureShape<Polygon>(fixture_b);
 
 	const Transform2d &ta = pair.bodies[0]->transform;
 	const Transform2d &tb = pair.bodies[1]->transform;
@@ -944,9 +950,9 @@ void CollideCirclePolygon(const TFixture<Circle> *fixture_a, const TFixture<Poly
 	contact->penetration = a.radius + dist;
 }
 
-void CollideCircleLine(const TFixture<Circle> *fixture_a, const TFixture<Line> *fixture_b, Rigid_Body_Pair pair, Contact_List *contacts) {
-	const Circle &a = fixture_a->payload;
-	const Line &b   = fixture_b->payload;
+void CollideCircleLine(const Fixture *fixture_a, const Fixture *fixture_b, Rigid_Body_Pair pair, Contact_List *contacts) {
+	const Circle &a = FixtureShape<Circle>(fixture_a);
+	const Line &b   = FixtureShape<Line>(fixture_b);
 
 	Vec2 a_pos  = LocalToWorld(pair.bodies[0], a.center);
 	Vec2 normal = LocalDirectionToWorld(pair.bodies[1], b.normal);
@@ -965,9 +971,9 @@ void CollideCircleLine(const TFixture<Circle> *fixture_a, const TFixture<Line> *
 	contact->penetration = -dist;
 }
 
-void CollideCapsuleCapsule(const TFixture<Capsule> *fixture_a, const TFixture<Capsule> *fixture_b, Rigid_Body_Pair pair, Contact_List *contacts) {
-	const Capsule &a = fixture_a->payload;
-	const Capsule &b = fixture_b->payload;
+void CollideCapsuleCapsule(const Fixture *fixture_a, const Fixture *fixture_b, Rigid_Body_Pair pair, Contact_List *contacts) {
+	const Capsule &a = FixtureShape<Capsule>(fixture_a);
+	const Capsule &b = FixtureShape<Capsule>(fixture_b);
 
 	const Transform2d &ta = pair.bodies[0]->transform;
 	const Transform2d &tb = pair.bodies[1]->transform;
@@ -1075,9 +1081,9 @@ void CollideCapsuleCapsule(const TFixture<Capsule> *fixture_a, const TFixture<Ca
 	contact->penetration = radius - dist;
 }
 
-void CollideCapsulePolygon(const TFixture<Capsule> *fixture_a, const TFixture<Polygon> *fixture_b, Rigid_Body_Pair pair, Contact_List *contacts) {
-	const Capsule &a = fixture_a->payload;
-	const Polygon &b = fixture_b->payload;
+void CollideCapsulePolygon(const Fixture *fixture_a, const Fixture *fixture_b, Rigid_Body_Pair pair, Contact_List *contacts) {
+	const Capsule &a = FixtureShape<Capsule>(fixture_a);
+	const Polygon &b = FixtureShape<Polygon>(fixture_b);
 
 	const Transform2d &ta = pair.bodies[0]->transform;
 	const Transform2d &tb = pair.bodies[1]->transform;
@@ -1238,9 +1244,9 @@ void CollideCapsulePolygon(const TFixture<Capsule> *fixture_a, const TFixture<Po
 	contact->penetration = penetration;
 }
 
-void CollideCapsuleLine(const TFixture<Capsule> *fixture_a, const TFixture<Line> *fixture_b, Rigid_Body_Pair pair, Contact_List *contacts) {
-	const Capsule &a = fixture_a->payload;
-	const Line &b    = fixture_b->payload;
+void CollideCapsuleLine(const Fixture *fixture_a, const Fixture *fixture_b, Rigid_Body_Pair pair, Contact_List *contacts) {
+	const Capsule &a = FixtureShape<Capsule>(fixture_a);
+	const Line &b    = FixtureShape<Line>(fixture_b);
 
 	Vec2 centers[2];
 	centers[0]  = LocalToWorld(pair.bodies[0], a.centers[0]);
@@ -1264,9 +1270,9 @@ void CollideCapsuleLine(const TFixture<Capsule> *fixture_a, const TFixture<Line>
 	}
 }
 
-void CollidePolygonLine(const TFixture<Polygon> *fixture_a, const TFixture<Line> *fixture_b, Rigid_Body_Pair pair, Contact_List *contacts) {
-	const Polygon &a = fixture_a->payload;
-	const Line &b    = fixture_b->payload;
+void CollidePolygonLine(const Fixture *fixture_a, const Fixture *fixture_b, Rigid_Body_Pair pair, Contact_List *contacts) {
+	const Polygon &a = FixtureShape<Polygon>(fixture_a);
+	const Line &b    = FixtureShape<Line>(fixture_b);
 
 	const Transform2d &ta = pair.bodies[0]->transform;
 
@@ -1369,9 +1375,9 @@ static bool PolygonPolygonOverlap(const Polygon &a, const Transform2d &ta, const
 	return false;
 }
 
-void CollidePolygonPolygon(const TFixture<Polygon> *fixture_a, const TFixture<Polygon> *fixture_b, Rigid_Body_Pair pair, Contact_List *contacts) {
-	const Polygon &a = fixture_a->payload;
-	const Polygon &b = fixture_b->payload;
+void CollidePolygonPolygon(const Fixture *fixture_a, const Fixture *fixture_b, Rigid_Body_Pair pair, Contact_List *contacts) {
+	const Polygon &a = FixtureShape<Polygon>(fixture_a);
+	const Polygon &b = FixtureShape<Polygon>(fixture_b);
 
 	const Transform2d &ta = pair.bodies[0]->transform;
 	const Transform2d &tb = pair.bodies[1]->transform;
@@ -1503,6 +1509,28 @@ void CollidePolygonPolygon(const TFixture<Polygon> *fixture_a, const TFixture<Po
 	contact->normal      = normal;
 	contact->point       = incident.furthest_vertex;
 	contact->penetration = penetration;
+}
+
+typedef void(*Collide_Proc)(const Fixture *, const Fixture *, Rigid_Body_Pair , Contact_List *);
+
+static Collide_Proc Collides[FIXTURE_SHAPE_COUNT][FIXTURE_SHAPE_COUNT] = {
+	{ CollideCircleCircle, CollideCircleCapsule,  CollideCirclePolygon,  CollideCircleLine,  },
+	{ nullptr,             CollideCapsuleCapsule, CollideCapsulePolygon, CollideCapsuleLine, },
+	{ nullptr,             nullptr,               CollidePolygonPolygon, CollidePolygonLine, },
+	{ nullptr,             nullptr,               nullptr,               nullptr             },
+};
+
+void Collide(Rigid_Body *body_first, Fixture *first, Rigid_Body *body_second, Fixture *second, Contact_List *contacts) {
+	if (first->shape > second->shape) {
+		Swap(&body_first, &body_second);
+		Swap(&first, &second);
+	}
+
+	Rigid_Body_Pair pair;
+	pair.bodies[0] = body_first;
+	pair.bodies[1] = body_second;
+
+	Collides[first->shape][second->shape](first, second, pair, contacts);
 }
 
 //
@@ -1962,17 +1990,13 @@ int Main(int argc, char **argv) {
 		contacts.arena    = ThreadScratchpad();
 		contacts.fallback = {};
 
-		if (follow)
-			CollidePolygonPolygon((TFixture<Polygon> *)&fix1, (TFixture<Polygon> *) &fix2, {&body1, &body2}, &contacts);
-		else
-			CollidePolygonPolygon((TFixture<Polygon> *)&fix2, (TFixture<Polygon> *) &fix1, {&body2, &body1}, &contacts);
+		Collide(&body1, &fix1, &body2, &fix2, &contacts);
 
 		// origin
 		R_DrawRectCentered(renderer, Vec2(0), Vec2(0.1f), Vec4(1, 1, 0, 1));
 
 		for (Contact *contact = contacts.first; contact; contact = contact->next) {
-			float f = follow ? -1.0f : 1.0f;
-			R_DrawLine(renderer, contact->point, contact->point + f * contact->penetration * contact->normal, Vec4(0, 1, 0, 1));
+			R_DrawLine(renderer, contact->point, contact->point - contact->penetration * contact->normal, Vec4(0, 1, 0, 1));
 			R_DrawCircle(renderer, contact->point, 0.1f, Vec4(1, 1, 0, 1));
 		}
 
