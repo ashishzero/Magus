@@ -1426,6 +1426,34 @@ void CollideCapsuleLine(const TFixture<Capsule> *fixture_a, const TFixture<Line>
 	}
 }
 
+void CollidePolygonLine(const TFixture<Polygon> *fixture_a, const TFixture<Line> *fixture_b, Rigid_Body_Pair pair, Contact_List *contacts) {
+	const Polygon &a = fixture_a->payload;
+	const Line &b    = fixture_b->payload;
+
+	const Transform2d &ta = pair.bodies[0]->transform;
+
+	Vec2 world_normal = LocalDirectionToWorld(pair.bodies[1], b.normal);
+	Vec2 direction    = -WorldDirectionToLocal(ta, world_normal);
+
+	Line_Segment edge = FurthestEdge(a, direction);
+
+	Vec2 vertices[] = { edge.a, edge.b };
+
+	for (Vec2 vertex : vertices) {
+		vertex     = LocalToWorld(ta, vertex);
+		float perp = DotProduct(world_normal, vertex);
+		float dist = perp - b.offset;
+
+		if (dist <= 0.0f) {
+			Contact *contact     = PushContact(contacts, pair, fixture_b, fixture_a);
+			contact->point       = vertex - dist * world_normal;
+			contact->normal      = world_normal;
+			contact->penetration = -dist;
+		}
+	}
+}
+
+
 static String_Builder frame_builder;
 
 #define DebugText(...) WriteFormatted(&frame_builder, __VA_ARGS__)
@@ -1436,37 +1464,6 @@ static String_Builder frame_builder;
 //
 
 // todo: verify
-
-uint LineVsPolygon(const TFixture<Line> *fixture_a, const TFixture<Polygon> *fixture_b, Rigid_Body_Pair pair, Contact_List *contacts) {
-	const Line &a    = fixture_a->payload;
-	const Polygon &b = fixture_b->payload;
-
-	const Transform2d &tb = pair.bodies[1]->transform;
-
-	Vec2 normal = LocalDirectionToWorld(pair.bodies[0], a.normal);
-	normal = WorldDirectionToLocal(tb, normal);
-
-	Line_Segment edge = FurthestEdge(b, -normal);
-
-	Vec2 vertices[] = { edge.a, edge.b };
-
-	uint count = 0;
-	for (Vec2 vertex : vertices) {
-		float perp = DotProduct(normal, vertex);
-		float dist = perp - a.offset;
-
-		if (dist <= 0.0f) {
-			Contact *contact     = PushContact(contacts, pair, fixture_a, fixture_b);
-			contact->point       = LocalToWorld(tb, vertex - dist * normal);
-			contact->normal      = LocalDirectionToWorld(tb, normal);
-			contact->penetration = -dist;
-
-			count += 1;
-		}
-	}
-
-	return count;
-}
 
 struct Farthest_Edge {
 	Vec2 vector;
@@ -2000,7 +1997,7 @@ int Main(int argc, char **argv) {
 				circle	capsule	polygon	line
 		circle    .      .        .       .
 		capsule   x      .        .       .
-		polygon   x      x        ?       ?
+		polygon   x      x        ?       .
 		line      x      x        x       x
 		*/
 
@@ -2046,23 +2043,22 @@ int Main(int argc, char **argv) {
 		Rigid_Body body1 = {};
 		Rigid_Body body2 = {};
 
-		Capsule first_shape;
-		first_shape.centers[0] = Vec2(-1, 0);
-		first_shape.centers[1] = Vec2(1, 0);
-		first_shape.radius = 0.5f;
+		auto &first_shape = polygon;
+		//first_shape.centers[0] = Vec2(-1, 0);
+		//first_shape.centers[1] = Vec2(1, 0);
+		//first_shape.radius = 0.5f;
 
 		auto &second_shape = line;
 
 		body1.transform.pos = cursor_cam_pos;
 		body1.transform.rot = Rotation2x2(DegToRad(angle));
 		body2.transform.pos = Vec2(0, 0);
-		body2.transform.rot = Rotation2x2(DegToRad(0));
+		body2.transform.rot = Rotation2x2(DegToRad(15));
 
-
-		TFixture<Capsule> fix1 = { FIXTURE_SHAPE_CAPSULE, first_shape };
+		TFixture<Fixed_Polygon<5>> fix1 = { FIXTURE_SHAPE_POLYGON, first_shape };
 		TFixture<Line> fix2 = { FIXTURE_SHAPE_LINE, second_shape };
 
-		DrawShape(renderer, first_shape, Vec4(1), body1.transform);
+		DrawShape(renderer, (Polygon &)first_shape, Vec4(1), body1.transform);
 		DrawShape(renderer, second_shape, Vec4(1), body2.transform);
 		//R_DrawLine(renderer, first_shape.centers[0], first_shape.centers[1], Vec4(1));
 
@@ -2071,7 +2067,7 @@ int Main(int argc, char **argv) {
 		contacts.arena    = ThreadScratchpad();
 		contacts.fallback = {};
 
-		CollideCapsuleLine(&fix1, &fix2, {&body1, &body2}, &contacts);
+		CollidePolygonLine((TFixture<Polygon> *)&fix1, &fix2, {&body1, &body2}, &contacts);
 
 		// origin
 		R_DrawRectCentered(renderer, Vec2(0), Vec2(0.1f), Vec4(1, 1, 0, 1));
