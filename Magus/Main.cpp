@@ -771,168 +771,6 @@ struct TFixture : Fixture {
 //
 //
 
-struct MTV {
-	Vec2  normal;
-	float penetration;
-};
-
-bool Overlaps(Vec2 p1, Vec2 p2) {
-	return p2.y > p1.x && p1.y > p2.x;
-}
-
-float CalcOverlap(Vec2 p1, Vec2 p2) {
-	float overlap = Min(p1.y, p2.y) - Max(p1.x, p2.x);
-
-	// if one contains the either
-	if (p1.x > p2.x && p1.y < p2.y) {
-		overlap += Min(p1.x - p2.x, p2.y - p1.y);
-	} else if (p2.x > p1.x && p2.y < p1.y) {
-		overlap += Min(p2.x - p1.x, p1.y - p2.y);
-	}
-
-	return overlap;
-}
-
-// todo: verify
-template <typename ShapeA, typename ShapeB>
-bool SeparateAxis(const ShapeA &a, const Transform2d &ta, const ShapeB &b, const Transform2d &tb, MTV *mtv) {
-	float overlap = FLT_MAX;
-	Vec2 normal   = Vec2(0, 0);
-
-	Vec2 axis;
-	
-	for (uint index = 0; GetAxis(index, a, ta, &axis); ++index) {
-		Vec2 p1 = Project(a, ta, axis);
-		Vec2 p2 = Project(b, tb, axis);
-
-		if (!Overlaps(p1, p1)) {
-			return false;
-		}
-
-		float o = CalcOverlap(p1, p2);
-		if (o < overlap) {
-			overlap = o;
-			normal  = axis;
-		}
-	}
-
-	for (uint index = 0; GetAxis(index, b, tb, &axis); ++index) {
-		Vec2 p1 = Project(a, ta, axis);
-		Vec2 p2 = Project(b, tb, axis);
-
-		if (!Overlaps(p1, p2)) {
-			return true;
-		}
-
-		float o = CalcOverlap(p1, p2);
-		if (o < overlap) {
-			overlap = o;
-			normal  = axis;
-		}
-	}
-
-	// Face the normal from shape a to shape b
-	if (DotProduct(normal, tb.pos - ta.pos) < 0.0f) {
-		normal = -normal;
-	}
-
-	mtv->normal      = NormalizeZ(normal);
-	mtv->penetration = overlap;
-
-	return true;
-}
-
-//
-//
-//
-
-static const Vec2 RectAxis[]          = { Vec2(1, 0), Vec2(0, 1) };
-static const Vec2 RectVertexOffsets[] = { Vec2(-1, -1), Vec2(1, -1), Vec2(1, 1), Vec2(-1, 1) };
-
-bool GetAxis(uint index, const Rect &rect, const Transform2d &transform, Vec2 *axis) {
-	if (index < 2) {
-		*axis = LocalDirectionToWorld(transform, RectAxis[index]);
-		*axis = NormalizeZ(*axis);
-		return true;
-	}
-	return false;
-}
-
-bool GetAxis(uint index, const Polygon &polygon, const Transform2d &transform, Vec2 *axis) {
-	if (index < polygon.count) {
-		Vec2 p1 = polygon.vertices[index];
-		Vec2 p2 = polygon.vertices[(index + 1) % polygon.count];
-		Vec2 n  = PerpendicularVector(p1, p2);
-		*axis   = LocalDirectionToWorld(transform, n);
-		*axis   = NormalizeZ(*axis);
-		return true;
-	}
-	return false;
-}
-
-Vec2 Project(const Rect &rect, const Transform2d &transform, Vec2 axis) {
-	Vec2 vertex = LocalToWorld(transform, rect.center + RectVertexOffsets[0] * rect.half_size);
-
-	float min = DotProduct(axis, vertex);
-	float max = min;
-
-	for (int i = 1; i < ArrayCount(RectVertexOffsets); ++i) {
-		vertex  = LocalToWorld(transform, rect.center + RectVertexOffsets[i] * rect.half_size);
-		float p = DotProduct(axis, vertex);
-		if (p < min)
-			min = p;
-		else if (p > max)
-			max = p;
-	}
-
-	return Vec2(min, max);
-}
-
-Vec2 Project(const Polygon &polygon, const Transform2d &transform, Vec2 axis) {
-	Vec2 vertex = LocalToWorld(transform, polygon.vertices[0]);
-
-	float min = DotProduct(axis, vertex);
-	float max = min;
-
-	for (ptrdiff_t i = 1; i < polygon.count; ++i) {
-		vertex  = LocalToWorld(transform, polygon.vertices[i]);
-		float p = DotProduct(axis, vertex);
-		if (p < min)
-			min = p;
-		else if (p > max)
-			max = p;
-	}
-
-	return Vec2(min, max);
-}
-
-Vec2 ProjectPolygonToAxis(const Array_View<Vec2> vertices, Vec2 axis) {
-	float min = DotProduct(axis, vertices[0]);
-	float max = min;
-
-	for (ptrdiff_t i = 1; i < vertices.count; ++i) {
-		float p = DotProduct(axis, vertices[i]);
-		if (p < min)
-			min = p;
-		else if (p > max)
-			max = p;
-	}
-
-	return Vec2(min, max);
-}
-
-Vec2 ProjectPolygonToAxis(const Vec2 *vertices, uint count, Vec2 axis) {
-	return ProjectPolygonToAxis(Array_View<Vec2>(vertices, count), axis);
-}
-
-Vec2 ProjectPolygonToAxis(const Polygon &polygon, Vec2 axis) {
-	return ProjectPolygonToAxis(Array_View<Vec2>(polygon.vertices, polygon.count), axis);
-}
-
-//
-//
-//
-
 void FillSurfaceData(Contact *contact, Rigid_Body_Pair pair, const Fixture *first, const Fixture *second) {
 	contact->pair = pair;
 	//todo: fill rest of the data
@@ -1453,188 +1291,227 @@ void CollidePolygonLine(const TFixture<Polygon> *fixture_a, const TFixture<Line>
 	}
 }
 
-
-static String_Builder frame_builder;
-
-#define DebugText(...) WriteFormatted(&frame_builder, __VA_ARGS__)
-
-
-//
-//
-//
-
-// todo: verify
-
-struct Farthest_Edge {
-	Vec2 vector;
-	Vec2 points[2];
-	Vec2 max;
+struct Farthest_Edge_Desc {
+	Vec2 direction;
+	Vec2 vertices[2];
+	Vec2 furthest_vertex;
 };
 
-static Farthest_Edge FindFarthestEdge(const Polygon &polygon, Vec2 normal) {
-	const Vec2 *vertices = polygon.vertices;
-	uint count = polygon.count;
+static Farthest_Edge_Desc FarthestEdgeDesc(const Polygon &polygon, const Transform2d &transform, Vec2 world_normal) {
+	Vec2 normal = WorldDirectionToLocal(transform, world_normal);
 
-	float max   = DotProduct(normal, vertices[0]);
-	uint best_i = 0;
+	uint index = FurthestVertexIndex(polygon, normal);
 
-	for (uint i = 1; i < count; ++i) {
-		float proj = DotProduct(normal, vertices[i]);
-		if (proj > max) {
-			max    = proj;
-			best_i = i;
-		}
-	}
+	Vec2 v  = polygon.vertices[index];
+	Vec2 v0 = index ? polygon.vertices[index - 1] : polygon.vertices[polygon.count - 1];
+	Vec2 v1 = index + 1 < polygon.count ? polygon.vertices[index + 1] : polygon.vertices[0];
 
-	Vec2 v  = vertices[best_i];
-	Vec2 v0 = best_i ? vertices[best_i - 1] : vertices[count - 1];
-	Vec2 v1 = best_i + 1 < count ? vertices[best_i + 1] : vertices[0];
+	Vec2 d0 = NormalizeZ(v - v0);
+	Vec2 d1 = NormalizeZ(v - v1);
 
-	Vec2 l = NormalizeZ(v - v0);
-	Vec2 r = NormalizeZ(v - v1);
+	Farthest_Edge_Desc  edge;
 
-	Farthest_Edge  edge;
-
-	if (DotProduct(r, normal) <= DotProduct(l, normal)) {
-		edge.vector    = r;
-		edge.points[0] = v0;
-		edge.points[1] = v;
-		edge.max       = v;
+	if (DotProduct(d0, normal) <= DotProduct(d1, normal)) {
+		edge.direction       = d0;
+		edge.vertices[0]     = v0;
+		edge.vertices[1]     = v;
+		edge.furthest_vertex = v;
 	} else {
-		edge.vector    = l;
-		edge.points[0] = v;
-		edge.points[1] = v1;
-		edge.max       = v;
+		edge.direction       = -d1;
+		edge.vertices[0]     = v;
+		edge.vertices[1]     = v1;
+		edge.furthest_vertex = v;
 	}
+
+	edge.direction       = LocalDirectionToWorld(transform, edge.direction);
+	edge.vertices[0]     = LocalToWorld(transform, edge.vertices[0]);
+	edge.vertices[1]     = LocalToWorld(transform, edge.vertices[1]);
+	edge.furthest_vertex = LocalToWorld(transform, edge.furthest_vertex);
 
 	return edge;
 }
 
-static Line_Segment ClipLineSegment(Vec2 input_a, Vec2 input_b, Vec2 region_a, Vec2 region_b) {
-	Assert(!AlmostEqual(region_a, region_b));
+static Vec2 ProjectPolygon(const Polygon &polygon, const Transform2d &transform, Vec2 normal) {
+	Vec2 vertex = LocalToWorld(transform, polygon.vertices[0]);
 
-	Vec2 dir = NormalizeZ(region_b - region_a);
+	float min = DotProduct(normal, vertex);
+	float max = min;
 
-	float min = DotProduct(dir, region_a);
-	float max = DotProduct(dir, region_b);
+	for (ptrdiff_t i = 1; i < polygon.count; ++i) {
+		vertex = LocalToWorld(transform, polygon.vertices[i]);
+		float p = DotProduct(normal, vertex);
+		if (p < min)
+			min = p;
+		else if (p > max)
+			max = p;
+	}
 
-	float d1 = DotProduct(dir, input_a);
-	float d2 = DotProduct(dir, input_b);
-
-	float n1 = Clamp(min, max, d1);
-	float n2 = Clamp(min, max, d2);
-
-	Line_Segment clipped;
-	clipped.a = Absolute(n1 / d1) * input_a;
-	clipped.b = Absolute(n2 / d2) * input_b;
-
-	return clipped;
+	return Vec2(min, max);
 }
 
-static Line_Segment ClipLineSegment(Line_Segment input, Line_Segment region) {
-	return ClipLineSegment(input.a, input.b, region.a, region.b);
+static bool PolygonPolygonOverlap(const Polygon &a, const Transform2d &ta, const Polygon &b, const Transform2d &tb, Vec2 normal, float *overlap) {
+	Vec2 p1 = ProjectPolygon(a, ta, normal);
+	Vec2 p2 = ProjectPolygon(b, tb, normal);
+
+	if (p2.y > p1.x && p1.y > p2.x) {
+		*overlap = Min(p1.y, p2.y) - Max(p1.x, p2.x);
+
+		// if one contains the either
+		if (p1.x > p2.x && p1.y < p2.y) {
+			*overlap += Min(p1.x - p2.x, p2.y - p1.y);
+		} else if (p2.x > p1.x && p2.y < p1.y) {
+			*overlap += Min(p2.x - p1.x, p1.y - p2.y);
+		}
+
+		return true;
+	}
+
+	return false;
 }
 
-// @TODO: optimize this procedure's use case
-static bool ClipPoints(Vec2 points[2], Vec2 a, Vec2 b) {
-	Vec2 v1 = points[0];
-	Vec2 v2 = points[1];
-
-	Vec2 dir = NormalizeZ(b - a);
-
-	float min = DotProduct(dir, a);
-	float max = DotProduct(dir, b);
-
-	float d1 = DotProduct(dir, v1);
-	float d2 = DotProduct(dir, v2);
-
-	float d = d1 + d2;
-	if (d == 0) return false;
-
-	Vec2 t = (v2 - v1) / d;
-	points[0] = v1 + t * min;
-	points[1] = v1 + t * max;
-
-	return true;
-}
-
-// todo: verify
-uint PolygonVsPolygon(const TFixture<Polygon> *fixture_a, const TFixture<Polygon> *fixture_b, Rigid_Body_Pair pair, Contact_List *contacts) {
+void CollidePolygonPolygon(const TFixture<Polygon> *fixture_a, const TFixture<Polygon> *fixture_b, Rigid_Body_Pair pair, Contact_List *contacts) {
 	const Polygon &a = fixture_a->payload;
 	const Polygon &b = fixture_b->payload;
 
 	const Transform2d &ta = pair.bodies[0]->transform;
 	const Transform2d &tb = pair.bodies[1]->transform;
 
-	MTV mtv;
-	if (!SeparateAxis(a, ta, b, tb, &mtv))
-		return 0;
+	// Separate Axis Theorem
+	float min_overlap = FLT_MAX;
+	Vec2 best_normal  = Vec2(0, 0);
 
-	Farthest_Edge e1 = FindFarthestEdge(a, WorldDirectionToLocal(ta, mtv.normal));
-	Farthest_Edge e2 = FindFarthestEdge(b, WorldDirectionToLocal(tb, -mtv.normal));
+	float overlap;
 
-	e1.vector    = LocalDirectionToWorld(ta, e1.vector);
-	e1.points[0] = LocalToWorld(ta, e1.points[0]);
-	e1.points[1] = LocalToWorld(ta, e1.points[1]);
+	uint i = a.count - 1;
+	uint j = 0;
 
-	e2.vector    = LocalDirectionToWorld(tb, e2.vector);
-	e2.points[0] = LocalToWorld(tb, e2.points[0]);
-	e2.points[1] = LocalToWorld(tb, e2.points[1]);
+	Vec2 normal = NormalizeZ(PerpendicularVector(a.vertices[i], a.vertices[j]));
+	if (!PolygonPolygonOverlap(a, ta, b, tb, normal, &overlap))
+		return;
 
-	Farthest_Edge reference, incident;
-	bool flip = false;
+	if (overlap < min_overlap) {
+		min_overlap = overlap;
+		best_normal = -normal;
+	}
 
-	if (DotProduct(e1.vector, mtv.normal) <= DotProduct(e2.vector, -mtv.normal)) {
-		reference = e1;
-		incident  = e2;
+	for (i = 0; i < a.count - 1; ++i) {
+		j = i + 1;
+
+		normal = NormalizeZ(PerpendicularVector(a.vertices[i], a.vertices[j]));
+		if (!PolygonPolygonOverlap(a, ta, b, tb, normal, &overlap))
+			return;
+
+		if (overlap < min_overlap) {
+			min_overlap = overlap;
+			best_normal = -normal;
+		}
+	}
+
+	i = b.count - 1;
+	j = 0;
+
+	normal = NormalizeZ(PerpendicularVector(b.vertices[i], b.vertices[j]));
+	if (!PolygonPolygonOverlap(a, ta, b, tb, normal, &overlap))
+		return;
+
+	if (overlap < min_overlap) {
+		min_overlap = overlap;
+		best_normal = normal;
+	}
+
+	for (i = 0; i < b.count - 1; ++i) {
+		j = i + 1;
+
+		normal = NormalizeZ(PerpendicularVector(b.vertices[i], b.vertices[j]));
+		if (!PolygonPolygonOverlap(a, ta, b, tb, normal, &overlap))
+			return;
+
+		if (overlap < min_overlap) {
+			min_overlap = overlap;
+			best_normal = normal;
+		}
+	}
+
+	if (DotProduct(best_normal, tb.pos - ta.pos) < 0.0f)
+		best_normal = -best_normal;
+
+	float penetration = overlap;
+	normal            = best_normal;
+
+	Farthest_Edge_Desc edge_a = FarthestEdgeDesc(a, ta, normal);
+	Farthest_Edge_Desc edge_b = FarthestEdgeDesc(b, tb, -normal);
+
+	Farthest_Edge_Desc reference, incident;
+
+	float dot_a = Absolute(DotProduct(edge_a.direction, normal));
+	float dot_b = Absolute(DotProduct(edge_b.direction, normal));
+
+ 	if (dot_a < dot_b) {
+		reference = edge_a;
+		incident  = edge_b;
+	} else if (dot_b < dot_a) {
+		reference = edge_b;
+		incident  = edge_a;
 	} else {
-		reference = e2;
-		incident  = e1;
-		flip      = true;
+		if (LengthSq(edge_a.vertices[1] - edge_a.vertices[0]) >= LengthSq(edge_b.vertices[1] - edge_b.vertices[0])) {
+			reference = edge_a;
+			incident  = edge_b;
+		} else {
+			reference = edge_b;
+			incident  = edge_a;
+		}
 	}
 
-	Vec2 points[2] = { incident.points[0], incident.points[1] };
+	float d1  = DotProduct(reference.direction, incident.vertices[0]);
+	float d2  = DotProduct(reference.direction, incident.vertices[1]);
+	float d   = d2 - d1;
 
-	if (!ClipPoints(points, reference.points[0], reference.points[1]))
-		return false;
+	if (d) {
+		float min = DotProduct(reference.direction, reference.vertices[0]);
+		float max = DotProduct(reference.direction, reference.vertices[1]);
 
-	Vec2 normal = PerpendicularVector(reference.points[0], reference.points[1]);
+		float clipped_d1 = Clamp(min, max, d1);
+		float clipped_d2 = Clamp(min, max, d2);
+		float inv_range  = 1.0f / (d2 - d1);
 
-	if (flip) normal = -normal;
-	normal = NormalizeZ(normal);
+		Vec2 points[2];
+		Vec2 relative = incident.vertices[1] - incident.vertices[0];
+		points[0]     = incident.vertices[0] + (clipped_d1 - d1) * inv_range * relative;
+		points[1]     = incident.vertices[0] + (clipped_d2 - d1) * inv_range * relative;
 
-	float max = DotProduct(normal, reference.max);
+		Vec2 reference_normal = Vec2(reference.direction.y, -reference.direction.x);
+		float max_threshold   = DotProduct(reference_normal, reference.furthest_vertex);
 
-	uint count = 0;
+		for (uint i = 0; i < 2; ++i){
+			float depth = DotProduct(reference_normal, points[i]);
 
-	float penetration = DotProduct(normal, points[0]);
-	if (penetration <= max) {
-		Contact *contact = PushContact(contacts, pair, fixture_a, fixture_b);
+			if (depth <= max_threshold) {
+				Vec2 p = reference.vertices[1] - points[i];
 
-		contact->normal      = mtv.normal;
-		contact->point       = points[0];
-		contact->penetration = penetration;
+				Contact *contact     = PushContact(contacts, pair, fixture_a, fixture_b);
+				contact->normal      = normal;
+				contact->point       = points[i];
+				contact->penetration = DotProduct(reference_normal, reference.vertices[0] - points[i]);
+			}
+		}
 
-		count += 1;
+		return;
 	}
 
-	penetration = DotProduct(normal, points[1]);
-	if (penetration <= max) {
-		Contact *contact = PushContact(contacts, pair, fixture_a, fixture_b);
-		
-		contact->normal      = mtv.normal;
-		contact->point       = points[1];
-		contact->penetration = penetration;
-
-		count += 1;
-	}
-
-	return count;
+	// Only single vertex is in the reference edge
+	Contact *contact     = PushContact(contacts, pair, fixture_a, fixture_b);
+	contact->normal      = normal;
+	contact->point       = incident.furthest_vertex;
+	contact->penetration = penetration;
 }
 
 //
 //
 //
+
+static String_Builder frame_builder;
+
+#define DebugText(...) WriteFormatted(&frame_builder, __VA_ARGS__)
 
 // todo: into renderer?
 void DrawShape(R_Renderer2d *renderer, const Vec2 &point, Vec4 color = Vec4(1), const Transform2d &transform = { Identity2x2(), Vec2(0) }) {
@@ -1699,6 +1576,8 @@ void DrawShape(R_Renderer2d *renderer, const Polygon &polygon, Vec4 color = Vec4
 	R_PopTransform(renderer);
 }
 
+static const Vec2 RectAxis[] = { Vec2(1, 0), Vec2(0, 1) };
+static const Vec2 RectVertexOffsets[] = { Vec2(-1, -1), Vec2(1, -1), Vec2(1, 1), Vec2(-1, 1) };
 
 int Main(int argc, char **argv) {
 	PL_ThreadCharacteristics(PL_THREAD_GAMES);
@@ -1796,6 +1675,11 @@ int Main(int argc, char **argv) {
 
 	bool follow = false;
 
+	Vec2 cursor_cam_pos = Vec2(0);
+
+	float control = 0.0f;
+	Vec2 init_pos = Vec2(0);
+
 	bool running = true;
 
 	while (running) {
@@ -1842,15 +1726,25 @@ int Main(int argc, char **argv) {
 
 			if (e.kind == PL_EVENT_KEY_PRESSED && e.key.id == PL_KEY_SPACE) {
 				if (!e.key.repeat) {
-					//follow = !follow;
-
+					follow = !follow;
 				}
+			}
+
+			if (e.kind == PL_EVENT_KEY_PRESSED && e.key.id == PL_KEY_R) {
 				angle += 0.5f;
 			}
 
 			if (e.kind == PL_EVENT_KEY_PRESSED && e.key.id == PL_KEY_RETURN) {
 				if (!e.key.repeat) {
 					RandomRigidBodies(bodies);
+					if (control == 0.0f) {
+						init_pos = Vec2(0.0f);
+						control = 1.0f;
+					} else {
+						init_pos  = cursor_cam_pos;
+						control = 0.0f;
+					}
+					angle = 0.0f;
 				}
 			}
 
@@ -1975,7 +1869,7 @@ int Main(int argc, char **argv) {
 
 		float cam_width = aspect_ratio * cam_height;
 
-		Vec2 cursor_cam_pos = MapRange(Vec2(0), Vec2(width, height),
+		cursor_cam_pos = MapRange(Vec2(0), Vec2(width, height),
 			-0.5f * Vec2(cam_width, cam_height), 0.5f * Vec2(cam_width, cam_height),
 			cursor_pos);
 
@@ -1986,6 +1880,7 @@ int Main(int argc, char **argv) {
 		R_SetLineThickness(renderer, 2.0f * cam_height / height);
 
 		Mat4 camera_transform = Translation(Vec3(camera_pos, 0)) * Scale(Vec3(camera_dist, camera_dist, 1.0f));
+		camera_transform      = Identity();
 		Mat4 world_transform  = Inverse(camera_transform);
 
 		// FIXTURE_SHAPE_CIRCLE,
@@ -1997,7 +1892,7 @@ int Main(int argc, char **argv) {
 				circle	capsule	polygon	line
 		circle    .      .        .       .
 		capsule   x      .        .       .
-		polygon   x      x        ?       .
+		polygon   x      x        .       .
 		line      x      x        x       x
 		*/
 
@@ -2034,32 +1929,32 @@ int Main(int argc, char **argv) {
 		polygon.vertices[3] = Vec2(-1, -2);
 		polygon.vertices[4] = Vec2(1, -2);
 
-		//polygon.count = 4;
-		//for (int i = 0; i < 4; ++i)
-		//	polygon.vertices[i] = rect.center + RectVertexOffsets[i] * rect.half_size;
-
 		Vec2 point = Vec2(0, 0);
 
 		Rigid_Body body1 = {};
 		Rigid_Body body2 = {};
 
-		auto &first_shape = polygon;
-		//first_shape.centers[0] = Vec2(-1, 0);
-		//first_shape.centers[1] = Vec2(1, 0);
-		//first_shape.radius = 0.5f;
+		Fixed_Polygon<5> first_shape = polygon;
+		Fixed_Polygon<5> second_shape = polygon;
 
-		auto &second_shape = line;
+		/*first_shape.count = 4;
+		for (int i = 0; i < 4; ++i)
+			first_shape.vertices[i] = Vec2(0, 0.0f) + RectVertexOffsets[i] * Vec2(1);
+		*/
+		//second_shape.count = 4;
+		//for (int i = 0; i < 4; ++i)
+		//	second_shape.vertices[i] = rect.center + RectVertexOffsets[i] * rect.half_size;
 
-		body1.transform.pos = cursor_cam_pos;
+		body1.transform.pos = init_pos + control * cursor_cam_pos;
 		body1.transform.rot = Rotation2x2(DegToRad(angle));
-		body2.transform.pos = Vec2(0, 0);
+		body2.transform.pos = Vec2(1, 0);
 		body2.transform.rot = Rotation2x2(DegToRad(15));
 
 		TFixture<Fixed_Polygon<5>> fix1 = { FIXTURE_SHAPE_POLYGON, first_shape };
-		TFixture<Line> fix2 = { FIXTURE_SHAPE_LINE, second_shape };
+		TFixture<Fixed_Polygon<5>> fix2 = { FIXTURE_SHAPE_POLYGON, second_shape };
 
 		DrawShape(renderer, (Polygon &)first_shape, Vec4(1), body1.transform);
-		DrawShape(renderer, second_shape, Vec4(1), body2.transform);
+		DrawShape(renderer, (Polygon &)second_shape, Vec4(1), body2.transform);
 		//R_DrawLine(renderer, first_shape.centers[0], first_shape.centers[1], Vec4(1));
 
 		Contact_List contacts;
@@ -2067,13 +1962,17 @@ int Main(int argc, char **argv) {
 		contacts.arena    = ThreadScratchpad();
 		contacts.fallback = {};
 
-		CollidePolygonLine((TFixture<Polygon> *)&fix1, &fix2, {&body1, &body2}, &contacts);
+		if (follow)
+			CollidePolygonPolygon((TFixture<Polygon> *)&fix1, (TFixture<Polygon> *) &fix2, {&body1, &body2}, &contacts);
+		else
+			CollidePolygonPolygon((TFixture<Polygon> *)&fix2, (TFixture<Polygon> *) &fix1, {&body2, &body1}, &contacts);
 
 		// origin
 		R_DrawRectCentered(renderer, Vec2(0), Vec2(0.1f), Vec4(1, 1, 0, 1));
 
 		for (Contact *contact = contacts.first; contact; contact = contact->next) {
-			R_DrawLine(renderer, contact->point, contact->point - contact->penetration * contact->normal, Vec4(0, 1, 0, 1));
+			float f = follow ? -1.0f : 1.0f;
+			R_DrawLine(renderer, contact->point, contact->point + f * contact->penetration * contact->normal, Vec4(0, 1, 0, 1));
 			R_DrawCircle(renderer, contact->point, 0.1f, Vec4(1, 1, 0, 1));
 		}
 

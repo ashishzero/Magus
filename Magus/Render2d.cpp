@@ -1636,6 +1636,8 @@ void R_DrawText(R_Renderer2d *r2, Vec3 pos, Vec4 color, String text, R_Font *fon
 	Vec3 render_pos;
 	Vec2 render_dim;
 
+	float start_x = pos.x;
+
 	render_pos.z = pos.z;
 
 	uint8_t *start = text.data;
@@ -1647,7 +1649,8 @@ void R_DrawText(R_Renderer2d *r2, Vec3 pos, Vec4 color, String text, R_Font *fon
 		start += R_UTF8ToCodepoint(start, end, &codepoint);
 
 		if (codepoint == '\n') {
-			render_pos.y -= font->height * factor;
+			pos.x  = start_x;
+			pos.y -= (1 + font->height) * factor;
 			continue;
 		}
 
