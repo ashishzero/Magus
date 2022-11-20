@@ -17,6 +17,10 @@ struct Geometry {
 	Shape **shapes;
 };
 
+//
+//
+//
+
 enum Rigid_Body_Flags : uint {
 	RIGID_BODY_IS_AWAKE = 0x1
 };
@@ -40,3 +44,18 @@ struct Rigid_Body {
 
 	Geometry geometry;
 };
+
+//
+//
+//
+
+Vec2        LocalToWorld(const Rigid_Body *body, Vec2 local);
+Vec2        WorldToLocal(const Rigid_Body *body, Vec2 world);
+Vec2        LocalDirectionToWorld(const Rigid_Body *body, Vec2 local_dir);
+Vec2        WorldDirectionToLocal(const Rigid_Body *body, Vec2 world_dir);
+
+Transform2d CalculateRigidBodyTransform(Rigid_Body *body);
+
+void        ApplyForce(Rigid_Body *body, Vec2 force);
+void        ApplyForce(Rigid_Body *body, Vec2 force, Vec2 point_in_world);
+void        ApplyForceAtBodyPoint(Rigid_Body *body, Vec2 force, Vec2 point);
