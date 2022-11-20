@@ -105,6 +105,7 @@
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="Magus\Hex.h" />
+    <ClInclude Include="Magus\KrPhysics.h" />
     <ClInclude Include="Magus\Kr\KrMathType.h" />
     <ClInclude Include="Magus\Kr\KrRandom.h" />
     <ClInclude Include="Magus\Render2dBackend.h" />

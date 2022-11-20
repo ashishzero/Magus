@@ -12,6 +12,8 @@
 #include "Render2dBackend.h"
 #include "ResourceLoaders/Loaders.h"
 
+#include "KrPhysics.h"
+
 enum Resource_Kind {
 	RESOURCE_FONT,
 	RESOURCE_TEXTURE,
@@ -408,69 +410,50 @@ struct Controller {
 	Vec2 axis;
 };
 
-enum Rigid_Body_Flags : uint {
-	RIGID_BODY_IS_AWAKE = 0x1
-};
-
-struct Rigid_Body {
-	Vec2  position;
-	Vec2  orientation;
-	Vec2  velocity;
-	float rotation;
-
-	float damping;
-	float angular_damping;
-	float inv_mass;
-	float inv_inertia;
-
-	Vec2  acceleration;
-	Vec2  force;
-	float torque;
-
-	// TODO: We don't really need this here
-	Transform2d transform;
-
-	uint  flags;
-};
-
-Vec2 LocalToWorld(const Rigid_Body *body, Vec2 local) {
-	return LocalToWorld(body->transform, local);
+Vec2 TransformPoint(const Rigid_Body *body, Vec2 local) {
+	Vec2 p = ComplexProduct(body->W, local);
+	p += body->P;
+	return p;
 }
 
-Vec2 WorldToLocal(const Rigid_Body *body, Vec2 world) {
-	return WorldToLocal(body->transform, world);
+Vec2 TransformPointTransposed(const Rigid_Body *body, Vec2 world) {
+	world -= body->P;
+	Vec2 p = ComplexProduct(ComplexConjugate(body->W), world);
+	return p;
 }
 
-Vec2 LocalDirectionToWorld(const Rigid_Body *body, Vec2 local_dir) {
-	return LocalDirectionToWorld(body->transform, local_dir);
+Vec2 TransformDirection(const Rigid_Body *body, Vec2 local_dir) {
+	Vec2 p = ComplexProduct(body->W, local_dir);
+	return p;
 }
 
-Vec2 WorldDirectionToLocal(const Rigid_Body *body, Vec2 world_dir) {
-	return WorldDirectionToLocal(body->transform, world_dir);
+Vec2 TransformDirectionTransposed(const Rigid_Body *body, Vec2 world_dir) {
+	Vec2 p = ComplexProduct(ComplexConjugate(body->W), world_dir);
+	return p;
 }
 
 void ApplyForce(Rigid_Body *body, Vec2 force) {
-	body->force += force;
+	body->F += force;
 
 	body->flags |= RIGID_BODY_IS_AWAKE;
 }
 
 void ApplyForce(Rigid_Body *body, Vec2 force, Vec2 point_in_world) {
-	Vec2 rel = point_in_world - body->position;
+	Vec2 rel = point_in_world - body->P;
 
-	body->force += force;
-	body->torque += CrossProduct(force, rel);
+	body->F += force;
+	body->T += CrossProduct(force, rel);
 
 	body->flags |= RIGID_BODY_IS_AWAKE;
 }
 
 void ApplyForceAtBodyPoint(Rigid_Body *body, Vec2 force, Vec2 point) {
-	Vec2 point_in_world = LocalToWorld(body->transform, point);
+	Vec2 point_in_world = TransformPoint(body, point);
 	return ApplyForce(body, force, point_in_world);
 }
 
 void ApplyDrag(Rigid_Body *body, float k1, float k2) {
-	Vec2 velocity = body->velocity;
+	Vec2 velocity = body->dP;
 	float speed   = Length(velocity);
 	float drag    = k1 * speed + k2 * speed * speed;
 
@@ -482,14 +465,14 @@ void ApplyDrag(Rigid_Body *body, float k1, float k2) {
 }
 
 void ApplyGravity(Rigid_Body *body, Vec2 g) {
-	if (body->inv_mass == 0.0f) return;
-	Vec2 force = g / body->inv_mass;
+	if (body->invM == 0.0f) return;
+	Vec2 force = g / body->invM;
 	ApplyForce(body, force);
 }
 
 void ApplySpring(Rigid_Body *a, Rigid_Body *b, Vec2 a_connection, Vec2 b_connection, float k, float rest_length) {
-	a_connection = LocalToWorld(a->transform, a_connection);
-	b_connection = LocalToWorld(b->transform, b_connection);
+	a_connection = TransformPoint(a, a_connection);
+	b_connection = TransformPoint(b, b_connection);
 
 	Vec2 dir     = a_connection - b_connection;
 	float length = Length(dir);
@@ -502,7 +485,7 @@ void ApplySpring(Rigid_Body *a, Rigid_Body *b, Vec2 a_connection, Vec2 b_connect
 }
 
 void ApplySpring(Rigid_Body *body, Vec2 connection, Vec2 anchor, float k, float rest_length) {
-	connection = LocalToWorld(body->transform, connection);
+	connection = TransformPoint(body, connection);
 
 	Vec2 dir = connection - anchor;
 	float length = Length(dir);
@@ -513,8 +496,8 @@ void ApplySpring(Rigid_Body *body, Vec2 connection, Vec2 anchor, float k, float 
 }
 
 void ApplyBungee(Rigid_Body *a, Rigid_Body *b, Vec2 connection_a, Vec2 connection_b, float k, float rest_length) {
-	connection_a = LocalToWorld(a->transform, connection_a);
-	connection_b = LocalToWorld(b->transform, connection_b);
+	connection_a = TransformPoint(a, connection_a);
+	connection_b = TransformPoint(b, connection_b);
 
 	Vec2 dir = connection_a - connection_b;
 	float length = Length(dir);
@@ -528,7 +511,7 @@ void ApplyBungee(Rigid_Body *a, Rigid_Body *b, Vec2 connection_a, Vec2 connectio
 }
 
 void ApplyBungee(Rigid_Body *body, Vec2 connection, Vec2 anchor, float k, float rest_length) {
-	connection = LocalToWorld(body->transform, connection);
+	connection = TransformPoint(body, connection);
 
 	Vec2 dir = connection - anchor;
 	float length = Length(dir);
@@ -550,111 +533,252 @@ void ApplyBouyancy(Rigid_Body *body, Vec2 bouyancy_center, float submerged_volum
 	}
 }
 
-Transform2d CalcTransform(Rigid_Body *body) {
-	float cosine = body->orientation.x;
-	float sine   = body->orientation.y;
+Transform2d GetRigidBodyTransform(Rigid_Body *body) {
+	float cosine = body->W.x;
+	float sine   = body->W.y;
 
 	Transform2d transform;
-	transform.rot = Rotation2x2(body->orientation);
-	transform.pos = body->position;
+	transform.rot = Rotation2x2(body->W);
+	transform.pos = body->P;
 
 	return transform;
 }
 
 void PrepareForNextFrame(Rigid_Body *body) {
-	body->transform = CalcTransform(body);
-	body->force     = Vec2(0);
-	body->torque    = 0;
+	body->F     = Vec2(0);
+	body->T    = 0;
 }
 
 void Integrate(Rigid_Body *body, float dt) {
-	if (body->inv_mass == 0.0f) return;
+	if (body->invM == 0.0f) return;
 
-	Vec2 acceleration = body->acceleration;
-	acceleration += body->force * body->inv_mass;
-	float angular_acceleration = body->torque * body->inv_inertia;
+	Vec2 d2P = body->d2P;
+	d2P += body->F * body->invM;
+	float d2W = body->T * body->invI;
 
-	body->velocity += acceleration * dt;
-	body->velocity *= Pow(body->damping, dt);
+	body->dP += d2P * dt;
+	body->dP *= Pow(body->DF, dt);
 
-	body->rotation += angular_acceleration * dt;
-	body->rotation *= Pow(body->angular_damping, dt);
+	body->dW += d2W * dt;
+	body->dW *= Pow(body->WDF, dt);
 
-	body->position += body->velocity * dt;
-	body->orientation = ComplexProduct(body->orientation, Arm(body->rotation * dt));
+	body->P += body->dP * dt;
+	body->W = ComplexProduct(body->W, Arm(body->dW * dt));
+	body->W = NormalizeZ(body->W);
 }
 
 struct Rigid_Body_Pair {
 	Rigid_Body *bodies[2];
 };
 
-struct Contact {
-	Rigid_Body_Pair pair;
-	Vec2            point;
-	Vec2            normal;
-	float           penetration;
-	float           restitution;
-	float           friction;
-	Contact *       next;
+struct Contact_Solver_Data {
+	Mat2 transform;
+	Vec2 closing_velocity;
+	//Vec2 desired_delta_velocity;
+	Vec2 relative_positions[2];
 };
 
-float CalcSeparatingVelocity(Contact *contact) {
-	Rigid_Body *a    = contact->pair.bodies[0];
-	Rigid_Body *b    = contact->pair.bodies[1];
-	Vec2 relative    = a->velocity - b->velocity;
-	float separation = DotProduct(relative, contact->normal);
+struct Contact_Manifold {
+	Rigid_Body_Pair     pair;
+	Vec2                point;
+	Vec2                normal;
+	float               penetration;
+
+	// Surface information
+	float               restitution;
+	float               friction;
+
+	Contact_Solver_Data data;
+};
+
+#if 0
+
+void CalculateSolverData(Contact_Manifold *manifold, float dt) {
+	const Rigid_Body_Pair &pair = manifold->pair;
+
+	manifold->data.transform.rows[0] = manifold->normal;
+	manifold->data.transform.rows[1] = Vec2(-manifold->normal.y, manifold->normal.x);
+
+	manifold->data.relative_positions[0] = manifold->point - pair.bodies[0]->position;
+	manifold->data.relative_positions[1] = manifold->point - pair.bodies[1]->position;
+
+	Vec2 velocity = pair.bodies[0]->velocity - pair.bodies[1]->velocity;
+	velocity += ComplexProduct(Arm(pair.bodies[0]->rotation), manifold->data.relative_positions[0]);
+	velocity -= ComplexProduct(Arm(pair.bodies[1]->rotation), manifold->data.relative_positions[1]);
+
+	// TODO: use this??
+	Vec2 constant_velocity = dt * (pair.bodies[0]->acceleration - pair.bodies[1]->acceleration);
+
+	manifold->data.closing_velocity = TransformPointTransposed(manifold->data.transform, velocity);
+
+}
+
+void ResolvePosition(Contact_Manifold *manifold) {
+	const Rigid_Body_Pair &pair = manifold->pair;
+
+	float delta_rot[2];
+
+	float linear_inertia[2];
+	float angular_inertia[2];
+
+	float total_inertia = 0.0f;
+	for (int i = 0; i < 2; ++i) {
+		Vec2 relative_pos      = manifold->point - pair.bodies[i]->transform.pos;
+		float impulsive_torque = CrossProduct(relative_pos, manifold->normal);
+		float unit_impulse     = pair.bodies[i]->inv_inertia * impulsive_torque;
+		Vec2  unit_rotation    = ComplexProduct(Arm(unit_impulse), relative_pos);
+
+		angular_inertia[i] = DotProduct(unit_rotation, manifold->normal);
+		linear_inertia[i]  = pair.bodies[i]->inv_mass;
+
+		delta_rot[i]       = AngleBetween(NormalizeZ(relative_pos), manifold->normal);
+
+		if (Absolute(delta_rot[i]) > COLLISION_RESOLVER_ANGULAR_LIMIT) {
+			float penetration_frac = MapRange(0.0f, Absolute(delta_rot[i]), 0.0f, manifold->penetration, COLLISION_RESOLVER_ANGULAR_LIMIT);
+
+			if (delta_rot[i] >= 0.0f) {
+				delta_rot[i] = COLLISION_RESOLVER_ANGULAR_LIMIT;
+			} else {
+				delta_rot[i] = -COLLISION_RESOLVER_ANGULAR_LIMIT;
+			}
+
+			float frac     = 1.0f - penetration_frac / manifold->penetration;
+			float transfer = frac * angular_inertia[i];
+
+			angular_inertia[i] -= transfer;
+			linear_inertia[i]  += transfer;
+		}
+
+		total_inertia += linear_inertia[i] + angular_inertia[i];
+	}
+
+	float inverse_inertia = 1.0f / total_inertia;
+
+	Vec2 delta_pos   = manifold->normal * manifold->penetration;
+
+	pair.bodies[0]->position -= linear_inertia[0] * inverse_inertia * delta_pos;
+	pair.bodies[1]->position += linear_inertia[1] * inverse_inertia * delta_pos;
+
+	pair.bodies[0]->orientation = ComplexProduct(pair.bodies[0]->orientation, Arm(-angular_inertia[0] * inverse_inertia * delta_rot[0]));
+	pair.bodies[1]->orientation = ComplexProduct(pair.bodies[1]->orientation, Arm(angular_inertia[1] * inverse_inertia * delta_rot[1]));
+}
+
+void SolvePositions(Array_View<Contact_Manifold> manifolds, uint max_iters) {
+	for (uint iter = 0; iter < max_iters; ++iter) {
+		Contact_Manifold *worst_manifold = nullptr;
+		float worst_penetration          = 0.0f;
+
+		for (ptrdiff_t index = 0; index < manifolds.count; ++index) {
+			if (manifolds[index].penetration > worst_penetration) {
+				worst_manifold = &manifolds[index];
+				worst_penetration = manifolds[index].penetration;
+			}
+		}
+
+		if (!worst_manifold) break;
+
+		ApplyPositionChange(worst_manifold);
+	}
+}
+
+constexpr float COLLISION_RESOLVER_ANGULAR_LIMIT = DegToRad(45);
+
+void ResolveVelocity(Contact_Manifold *manifold, float dt) {
+	const Rigid_Body_Pair &pair = manifold->pair;
+
+	Mat2 contact_transform;
+	contact_transform.rows[0] = manifold->normal;
+	contact_transform.rows[1] = Vec2(-manifold->normal.y, manifold->normal.x);
+
+	Vec2 relative_pos[2];
+	relative_pos[0] = manifold->point - pair.bodies[0]->transform.pos;
+	relative_pos[1] = manifold->point - pair.bodies[1]->transform.pos;
+
+	float delta = 0.0;
+	for (int i = 0; i < 2; ++i) {
+		float impulsive_torque = CrossProduct(relative_pos[i], manifold->normal);
+		float unit_impulse     = pair.bodies[i]->inv_inertia * impulsive_torque;
+		Vec2  unit_rotation    = ComplexProduct(Arm(unit_impulse), relative_pos[i]);
+
+		delta += DotProduct(unit_rotation, manifold->normal);
+		delta += pair.bodies[i]->inv_mass;
+	}
+
+	Vec2 closing_velocity = pair.bodies[0]->velocity - pair.bodies[1]->velocity;
+	closing_velocity += ComplexProduct(Arm(pair.bodies[0]->rotation), relative_pos[0]);
+	closing_velocity -= ComplexProduct(Arm(pair.bodies[1]->rotation), relative_pos[1]);
+
+	Vec2  contact_velocity = TransformPointTransposed(contact_transform, closing_velocity);
+	float delta_velocity   = -contact_velocity.x * (1 + manifold->restitution);
+
+	Vec2 impulse = TransformPoint(contact_transform, Vec2(delta_velocity / delta, 0.0f));
+
+	for (int i = 0; i < 2; ++i) {
+		pair.bodies[i]->velocity += pair.bodies[i]->inv_mass * impulse;
+		pair.bodies[i]->rotation += pair.bodies[i]->inv_inertia * CrossProduct(relative_pos[i], impulse);
+
+		impulse = -impulse;
+	}
+}
+#endif
+
+float CalcSeparatingVelocity(Contact_Manifold *manifold) {
+	Rigid_Body *a = manifold->pair.bodies[0];
+	Rigid_Body *b = manifold->pair.bodies[1];
+	Vec2 relative = a->dP - b->dP;
+	float separation = DotProduct(relative, manifold->normal);
 	return separation;
 }
 
-void ResolveVelocity(Contact *contact, float dt) {
-	Rigid_Body *a = contact->pair.bodies[0];
-	Rigid_Body *b = contact->pair.bodies[1];
+void ResolveVelocity(Contact_Manifold *manifold, float dt) {
+	Rigid_Body *a = manifold->pair.bodies[0];
+	Rigid_Body *b = manifold->pair.bodies[1];
 
-	float separation = CalcSeparatingVelocity(contact);
+	float inv_mass = a->invM + b->invM;
+	if (inv_mass <= 0) return;
+
+	float separation = CalcSeparatingVelocity(manifold);
 
 	if (separation <= 0) {
-		float bounce = separation * contact->restitution;
+		float bounce = separation * manifold->restitution;
 
-		Vec2 relative = (a->acceleration - b->acceleration) * dt;
-		float acc_separation = DotProduct(relative, contact->normal);
+		Vec2 relative = (a->d2P - b->d2P) * dt;
+		float acc_separation = DotProduct(relative, manifold->normal);
 
 		if (acc_separation < 0) {
-			bounce -= acc_separation * contact->restitution;
+			bounce -= acc_separation * manifold->restitution;
 			bounce = Max(0.0f, bounce);
 		}
 
-		float delta = -(bounce + separation);
-
-		float inv_mass = a->inv_mass + b->inv_mass;
-		if (inv_mass <= 0) return;
+		float delta  = -(bounce + separation);
 
 		float impulse = delta / inv_mass;
 
-		Vec2 impulse_per_inv_mass = impulse * contact->normal;
+		Vec2 impulse_per_inv_mass = impulse * manifold->normal;
 
-		a->velocity += impulse_per_inv_mass * a->inv_mass;
-		b->velocity -= impulse_per_inv_mass * b->inv_mass;
+		a->dP += impulse_per_inv_mass * a->invM;
+		b->dP -= impulse_per_inv_mass * b->invM;
 	}
 }
 
-void ResolvePosition(Contact *contact) {
-	Rigid_Body *a = contact->pair.bodies[0];
-	Rigid_Body *b = contact->pair.bodies[1];
+void ResolvePosition(Contact_Manifold *manifold) {
+	Rigid_Body *a = manifold->pair.bodies[0];
+	Rigid_Body *b = manifold->pair.bodies[1];
 
-	if (contact->penetration > 0) {
-		float inv_mass = a->inv_mass + b->inv_mass;
+	if (manifold->penetration > 0) {
+		float inv_mass = a->invM + b->invM;
 		if (inv_mass <= 0) return;
 
-		Vec2 move_per_inv_mass = contact->penetration / inv_mass * contact->normal;
+		Vec2 move_per_inv_mass = manifold->penetration / inv_mass * manifold->normal;
 
-		a->position += move_per_inv_mass * a->inv_mass;
-		b->position -= move_per_inv_mass * b->inv_mass;
+		a->P += move_per_inv_mass * a->invM;
+		b->P -= move_per_inv_mass * b->invM;
 
-		contact->penetration = 0; // TODO: Is this required?
+		manifold->penetration = 0; // TODO: Is this required?
 	}
 }
 
-int ResolveCollisions(Array_View<Contact> contacts, int max_iters, float dt) {
+int ResolveCollisions(Array_View<Contact_Manifold> contacts, int max_iters, float dt) {
 	// TODO: separate velocity and position resolution into different loop
 	int iter = 0;
 	for (; iter < max_iters; ++iter) {
@@ -678,140 +802,107 @@ int ResolveCollisions(Array_View<Contact> contacts, int max_iters, float dt) {
 	return iter;
 }
 
-int ApplyCableConstraint(Rigid_Body *a, Rigid_Body *b, float max_length, float restitution, Contact *contact) {
-	float length = Distance(a->position, b->position);
+int ApplyCableConstraint(Rigid_Body *a, Rigid_Body *b, float max_length, float restitution, Contact_Manifold *manifold) {
+	float length = Distance(a->P, b->P);
 
 	if (length < max_length)
 		return 0;
 
-	contact->pair.bodies[0]   = a;
-	contact->pair.bodies[1]   = b;
-	contact->normal      = NormalizeZ(b->position - a->position);
-	contact->penetration = length - max_length;
-	contact->restitution = restitution;
+	manifold->pair.bodies[0]   = a;
+	manifold->pair.bodies[1]   = b;
+	manifold->normal      = NormalizeZ(b->P - a->P);
+	manifold->penetration = length - max_length;
+	manifold->restitution = restitution;
 
 	return 1;
 }
 
-int ApplyRodConstraint(Rigid_Body *a, Rigid_Body *b, float length, Contact *contact) {
-	float curr_length = Distance(a->position, b->position);
+int ApplyRodConstraint(Rigid_Body *a, Rigid_Body *b, float length, Contact_Manifold *manifold) {
+	float curr_length = Distance(a->P, b->P);
 
 	if (curr_length == length)
 		return 0;
 
-	contact->pair.bodies[0]   = a;
-	contact->pair.bodies[1]   = b;
-	contact->normal      = NormalizeZ(b->position - a->position) * Sgn(curr_length - length);
-	contact->penetration = Absolute(curr_length - length);
-	contact->restitution = 0;
+	manifold->pair.bodies[0]   = a;
+	manifold->pair.bodies[1]   = b;
+	manifold->normal      = NormalizeZ(b->P - a->P) * Sgn(curr_length - length);
+	manifold->penetration = Absolute(curr_length - length);
+	manifold->restitution = 0;
 
 	return 1;
 }
 
-int ApplyMagnetRepelConstraint(Rigid_Body *a, Rigid_Body *b, float max_length, float restitution, Contact *contact) {
-	float length = Distance(a->position, b->position);
+int ApplyMagnetRepelConstraint(Rigid_Body *a, Rigid_Body *b, float max_length, float restitution, Contact_Manifold *manifold) {
+	float length = Distance(a->P, b->P);
 
 	if (length > max_length)
 		return 0;
 
-	contact->pair.bodies[0]   = a;
-	contact->pair.bodies[1]   = b;
-	contact->normal      = NormalizeZ(a->position - b->position);
-	contact->penetration = max_length - length;
-	contact->restitution = restitution;
+	manifold->pair.bodies[0]   = a;
+	manifold->pair.bodies[1]   = b;
+	manifold->normal      = NormalizeZ(a->P - b->P);
+	manifold->penetration = max_length - length;
+	manifold->restitution = restitution;
 
 	return 1;
 }
 
 void RandomRigidBodies(Array_View<Rigid_Body> bodies) {
 	for (Rigid_Body &body : bodies) {
-		body.inv_mass = 1.0f / RandomFloat(0.1f, 0.5f);
-		body.inv_inertia = 0.0f;
-		body.damping = 0.8f;
-		body.angular_damping = 0.8f;
-		body.position = RandomVec2(Vec2(-5, 3), Vec2(5, 4));
-		body.orientation = Vec2(1, 0);
-		body.velocity = Vec2(0);
-		body.rotation = 0;
-		body.force = Vec2(0);
-		body.acceleration = Vec2(0, -10);
-		body.transform = CalcTransform(&body);
+		body.invM = 1.0f / RandomFloat(0.1f, 0.5f);
+		body.invI = 0.0f;
+		body.DF = 0.8f;
+		body.WDF = 0.8f;
+		body.P = RandomVec2(Vec2(-5, 3), Vec2(5, 4));
+		body.W = Vec2(1, 0);
+		body.dP = Vec2(0);
+		body.dW = 0;
+		body.F = Vec2(0);
+		body.d2P = Vec2(0, -10);
 		body.flags = 0;
 	}
 }
 
 // TODO: Continuous collision detection
 
-enum Fixture_Shape {
-	FIXTURE_SHAPE_CIRCLE,
-	FIXTURE_SHAPE_CAPSULE,
-	FIXTURE_SHAPE_POLYGON,
-	FIXTURE_SHAPE_LINE,
-	FIXTURE_SHAPE_COUNT,
-};
-
-struct Fixture {
-	Fixture_Shape shape;
-
-	Fixture() {}
-	Fixture(Fixture_Shape _shape): shape(_shape) {}
-};
-
-struct Geometry {
-	uint32_t  count;
-	Fixture **fixtures;
-};
-
-template <typename Payload>
-struct TFixture : Fixture {
-	Payload payload;
-};
-
 //
 //
 //
 
-void FillSurfaceData(Contact *contact, Rigid_Body_Pair pair, const Fixture *first, const Fixture *second) {
-	contact->pair = pair;
+void FillSurfaceData(Contact_Manifold *manifold, Rigid_Body_Pair pair, const Shape *first, const Shape *second) {
+	manifold->pair = pair;
 	//todo: fill rest of the data
 	//Unimplemented();
-	contact->friction = 0;
-	contact->restitution = 0;
+	manifold->friction = 0;
+	manifold->restitution = 0;
 }
 
-struct Contact_List {
-	Contact *first;
-	M_Arena *arena;
-	Contact  fallback;
-};
+using Contact_List = Array<Contact_Manifold>;
 
-Contact *PushContact(Contact_List *contacts, Rigid_Body_Pair pair, const Fixture *a, const Fixture *b) {
-	Contact *contact = M_PushType(contacts->arena, Contact);
-	if (contact) {
-		FillSurfaceData(contact, pair, a, b);
-
-		contact->next   = contacts->first;
-		contacts->first = contact;
-
-		return contact;
+Contact_Manifold *PushContact(Contact_List *contacts, Rigid_Body_Pair pair, const Shape *a, const Shape *b) {
+	Contact_Manifold *manifold = Append(contacts);
+	if (manifold) {
+		FillSurfaceData(manifold, pair, a, b);
+		return manifold;
 	}
 
-	LogWarning("[Physics]: Failed to allocate new contact point");
-	return &contacts->fallback;
+	static Contact_Manifold Fallback;
+	LogWarning("[Physics]: Failed to allocate new manifold point");
+	return &Fallback;
 }
 
 template <typename T>
-const T &FixtureShape(const Fixture *fixture) {
-	const TFixture<T> *typed = (const TFixture<T> *)fixture;
-	return typed->payload;
+const T &GetShapeData(const Shape *_shape) {
+	const TShape<T> *shape = (const TShape<T> *)_shape;
+	return shape->data;
 }
 
-void CollideCircleCircle(const Fixture *fixture_a, const Fixture *fixture_b, Rigid_Body_Pair pair, Contact_List *contacts) {
-	const Circle &a = FixtureShape<Circle>(fixture_a);
-	const Circle &b = FixtureShape<Circle>(fixture_b);
+void CollideCircleCircle(const Shape *fixture_a, const Shape *fixture_b, Rigid_Body_Pair pair, Contact_List *contacts) {
+	const Circle &a = GetShapeData<Circle>(fixture_a);
+	const Circle &b = GetShapeData<Circle>(fixture_b);
 
-	Vec2 a_pos = LocalToWorld(pair.bodies[0], a.center);
-	Vec2 b_pos = LocalToWorld(pair.bodies[1], b.center);
+	Vec2 a_pos = TransformPoint(pair.bodies[0], a.center);
+	Vec2 b_pos = TransformPoint(pair.bodies[1], b.center);
 
 	Vec2 midline   = b_pos - a_pos;
 	float length2  = LengthSq(midline);
@@ -835,20 +926,20 @@ void CollideCircleCircle(const Fixture *fixture_a, const Fixture *fixture_b, Rig
 
 	float factor = a.radius / (a.radius + b.radius);
 
-	Contact *contact     = PushContact(contacts, pair, fixture_a, fixture_b);
-	contact->point       = a_pos + factor * midline;
-	contact->normal      = normal;
-	contact->penetration = min_dist - length;
+	Contact_Manifold *manifold     = PushContact(contacts, pair, fixture_a, fixture_b);
+	manifold->point       = a_pos + factor * midline;
+	manifold->normal      = normal;
+	manifold->penetration = min_dist - length;
 }
 
-void CollideCircleCapsule(const Fixture *fixture_a, const Fixture *fixture_b, Rigid_Body_Pair pair, Contact_List *contacts) {
-	const Circle &a  = FixtureShape<Circle>(fixture_a);
-	const Capsule &b = FixtureShape<Capsule>(fixture_b);
+void CollideCircleCapsule(const Shape *fixture_a, const Shape *fixture_b, Rigid_Body_Pair pair, Contact_List *contacts) {
+	const Circle &a  = GetShapeData<Circle>(fixture_a);
+	const Capsule &b = GetShapeData<Capsule>(fixture_b);
 
-	Vec2 point = LocalToWorld(pair.bodies[0], a.center);
+	Vec2 point = TransformPoint(pair.bodies[0], a.center);
 
 	// Transform into Capsule's local space
-	point = WorldToLocal(pair.bodies[1], point);
+	point = TransformPointTransposed(pair.bodies[1], point);
 
 	Vec2 closest = NearestPointInLineSegment(point, b.centers[0], b.centers[1]);
 	float dist2 = LengthSq(closest - point);
@@ -880,18 +971,18 @@ void CollideCircleCapsule(const Fixture *fixture_a, const Fixture *fixture_b, Ri
 	float factor = a.radius / radius;
 	Vec2 contact_point = point + factor * midline;
 
-	Contact *contact     = PushContact(contacts, pair, fixture_a, fixture_b);
-	contact->point       = LocalToWorld(pair.bodies[1], contact_point);
-	contact->normal      = LocalDirectionToWorld(pair.bodies[1], normal);
-	contact->penetration = radius - length;
+	Contact_Manifold *manifold     = PushContact(contacts, pair, fixture_a, fixture_b);
+	manifold->point       = TransformPoint(pair.bodies[1], contact_point);
+	manifold->normal      = TransformDirection(pair.bodies[1], normal);
+	manifold->penetration = radius - length;
 }
 
-void CollideCirclePolygon(const Fixture *fixture_a, const Fixture *fixture_b, Rigid_Body_Pair pair, Contact_List *contacts) {
-	const Circle &a  = FixtureShape<Circle>(fixture_a);
-	const Polygon &b = FixtureShape<Polygon>(fixture_b);
+void CollideCirclePolygon(const Shape *fixture_a, const Shape *fixture_b, Rigid_Body_Pair pair, Contact_List *contacts) {
+	const Circle &a  = GetShapeData<Circle>(fixture_a);
+	const Polygon &b = GetShapeData<Polygon>(fixture_b);
 
-	const Transform2d &ta = pair.bodies[0]->transform;
-	const Transform2d &tb = pair.bodies[1]->transform;
+	Transform2d ta = GetRigidBodyTransform(pair.bodies[0]);
+	Transform2d tb = GetRigidBodyTransform(pair.bodies[1]);
 
 	Vec2 points[2];
 	if (GilbertJohnsonKeerthi(a.center, ta, b, tb, points)) {
@@ -904,17 +995,17 @@ void CollideCirclePolygon(const Fixture *fixture_a, const Fixture *fixture_b, Ri
 		float dist = SquareRoot(dist2);
 		Assert(dist != 0);
 
-		Contact *contact     = PushContact(contacts, pair, fixture_a, fixture_b);
-		contact->point       = points[1];
-		contact->normal      = dir / dist;
-		contact->penetration = a.radius - dist;
+		Contact_Manifold *manifold     = PushContact(contacts, pair, fixture_a, fixture_b);
+		manifold->point       = points[1];
+		manifold->normal      = dir / dist;
+		manifold->penetration = a.radius - dist;
 
 		return;
 	}
 
 	// Find the edge having the least distance from the origin of the circle
-	Vec2 center = LocalToWorld(ta, a.center);
-	center = WorldToLocal(tb, center);
+	Vec2 center = TransformPoint(ta, a.center);
+	center = TransformPointTransposed(tb, center);
 
 	uint best_i = b.count - 1;
 	uint best_j = 0;
@@ -944,18 +1035,18 @@ void CollideCirclePolygon(const Fixture *fixture_a, const Fixture *fixture_b, Ri
 		normal = NormalizeZ(normal);
 	}
 
-	Contact *contact     = PushContact(contacts, pair, fixture_a, fixture_b);
-	contact->point       = LocalToWorld(tb, point);
-	contact->normal      = LocalDirectionToWorld(tb, normal);
-	contact->penetration = a.radius + dist;
+	Contact_Manifold *manifold     = PushContact(contacts, pair, fixture_a, fixture_b);
+	manifold->point       = TransformPoint(tb, point);
+	manifold->normal      = TransformDirection(tb, normal);
+	manifold->penetration = a.radius + dist;
 }
 
-void CollideCircleLine(const Fixture *fixture_a, const Fixture *fixture_b, Rigid_Body_Pair pair, Contact_List *contacts) {
-	const Circle &a = FixtureShape<Circle>(fixture_a);
-	const Line &b   = FixtureShape<Line>(fixture_b);
+void CollideCircleLine(const Shape *fixture_a, const Shape *fixture_b, Rigid_Body_Pair pair, Contact_List *contacts) {
+	const Circle &a = GetShapeData<Circle>(fixture_a);
+	const Line &b   = GetShapeData<Line>(fixture_b);
 
-	Vec2 a_pos  = LocalToWorld(pair.bodies[0], a.center);
-	Vec2 normal = LocalDirectionToWorld(pair.bodies[1], b.normal);
+	Vec2 a_pos  = TransformPoint(pair.bodies[0], a.center);
+	Vec2 normal = TransformDirection(pair.bodies[1], b.normal);
 
 	float perp_dist = DotProduct(normal, a_pos);
 
@@ -965,24 +1056,24 @@ void CollideCircleLine(const Fixture *fixture_a, const Fixture *fixture_b, Rigid
 		return;
 	}
 
-	Contact *contact     = PushContact(contacts, pair, fixture_a, fixture_b);
-	contact->point       = a_pos - (dist + a.radius) * normal;
-	contact->normal      = normal;
-	contact->penetration = -dist;
+	Contact_Manifold *manifold     = PushContact(contacts, pair, fixture_a, fixture_b);
+	manifold->point       = a_pos - (dist + a.radius) * normal;
+	manifold->normal      = normal;
+	manifold->penetration = -dist;
 }
 
-void CollideCapsuleCapsule(const Fixture *fixture_a, const Fixture *fixture_b, Rigid_Body_Pair pair, Contact_List *contacts) {
-	const Capsule &a = FixtureShape<Capsule>(fixture_a);
-	const Capsule &b = FixtureShape<Capsule>(fixture_b);
+void CollideCapsuleCapsule(const Shape *fixture_a, const Shape *fixture_b, Rigid_Body_Pair pair, Contact_List *contacts) {
+	const Capsule &a = GetShapeData<Capsule>(fixture_a);
+	const Capsule &b = GetShapeData<Capsule>(fixture_b);
 
-	const Transform2d &ta = pair.bodies[0]->transform;
-	const Transform2d &tb = pair.bodies[1]->transform;
+	Transform2d ta = GetRigidBodyTransform(pair.bodies[0]);
+	Transform2d tb = GetRigidBodyTransform(pair.bodies[1]);
 
 	Line_Segment l1, l2;
-	l1.a = LocalToWorld(ta, a.centers[0]);
-	l1.b = LocalToWorld(ta, a.centers[1]);
-	l2.a = LocalToWorld(tb, b.centers[0]);
-	l2.b = LocalToWorld(tb, b.centers[1]);
+	l1.a = TransformPoint(ta, a.centers[0]);
+	l1.b = TransformPoint(ta, a.centers[1]);
+	l2.a = TransformPoint(tb, b.centers[0]);
+	l2.b = TransformPoint(tb, b.centers[1]);
 
 	Line_Segment points = NearestPointsInLineSegments(l1, l2);
 
@@ -1053,10 +1144,10 @@ void CollideCapsuleCapsule(const Fixture *fixture_a, const Fixture *fixture_b, R
 				points[1] = points[1] - factor * normal * dist;
 
 				for (int i = 0; i < 2; ++i) {
-					Contact *contact     = PushContact(contacts, pair, fixture_a, fixture_b);
-					contact->point       = points[i];
-					contact->normal      = normal;
-					contact->penetration = penetration;
+					Contact_Manifold *manifold     = PushContact(contacts, pair, fixture_a, fixture_b);
+					manifold->point       = points[i];
+					manifold->normal      = normal;
+					manifold->penetration = penetration;
 				}
 
 				return;
@@ -1069,24 +1160,24 @@ void CollideCapsuleCapsule(const Fixture *fixture_a, const Fixture *fixture_b, R
 		normal = midline / dist;
 	} else {
 		// capsules are intersecting, degenerate case
-		normal = LocalDirectionToWorld(ta, Vec2(0, 1)); // using arbritrary normal
+		normal = TransformDirection(ta, Vec2(0, 1)); // using arbritrary normal
 	}
 
 	float factor       = a.radius / radius;
 	Vec2 contact_point = points.a + factor * midline;
 
-	Contact *contact     = PushContact(contacts, pair, fixture_a, fixture_b);
-	contact->point       = contact_point;
-	contact->normal      = normal;
-	contact->penetration = radius - dist;
+	Contact_Manifold *manifold     = PushContact(contacts, pair, fixture_a, fixture_b);
+	manifold->point       = contact_point;
+	manifold->normal      = normal;
+	manifold->penetration = radius - dist;
 }
 
-void CollideCapsulePolygon(const Fixture *fixture_a, const Fixture *fixture_b, Rigid_Body_Pair pair, Contact_List *contacts) {
-	const Capsule &a = FixtureShape<Capsule>(fixture_a);
-	const Polygon &b = FixtureShape<Polygon>(fixture_b);
+void CollideCapsulePolygon(const Shape *fixture_a, const Shape *fixture_b, Rigid_Body_Pair pair, Contact_List *contacts) {
+	const Capsule &a = GetShapeData<Capsule>(fixture_a);
+	const Polygon &b = GetShapeData<Polygon>(fixture_b);
 
-	const Transform2d &ta = pair.bodies[0]->transform;
-	const Transform2d &tb = pair.bodies[1]->transform;
+	Transform2d ta = GetRigidBodyTransform(pair.bodies[0]);
+	Transform2d tb = GetRigidBodyTransform(pair.bodies[1]);
 
 	float dist;
 
@@ -1105,22 +1196,22 @@ void CollideCapsulePolygon(const Fixture *fixture_a, const Fixture *fixture_b, R
 
 		dist = SquareRoot(dist2);
 		penetration = a.radius - dist;
-		edge = FurthestEdge(b, WorldToLocal(tb, world_points[1]));
+		edge = FurthestEdge(b, TransformPointTransposed(tb, world_points[1]));
 
 		world_normal = world_points[1] - world_points[0];
 
 		if (IsNull(world_normal)) {
 			world_normal = PerpendicularVector(edge.a, edge.b);
-			world_normal = LocalDirectionToWorld(tb, world_normal);
+			world_normal = TransformDirection(tb, world_normal);
 		}
 
 		world_normal = NormalizeZ(world_normal);
 	} else {
-		Vec2 c0 = LocalToWorld(ta, a.centers[0]);
-		Vec2 c1 = LocalToWorld(ta, a.centers[1]);
+		Vec2 c0 = TransformPoint(ta, a.centers[0]);
+		Vec2 c1 = TransformPoint(ta, a.centers[1]);
 
-		c0 = WorldToLocal(tb, c0);
-		c1 = WorldToLocal(tb, c1);
+		c0 = TransformPointTransposed(tb, c0);
+		c1 = TransformPointTransposed(tb, c1);
 
 		uint best_i = b.count - 1;
 		uint best_j = 0;
@@ -1161,16 +1252,16 @@ void CollideCapsulePolygon(const Fixture *fixture_a, const Fixture *fixture_b, R
 			dist = 0.0f;
 		}
 
-		world_normal    = LocalDirectionToWorld(tb, normal);
-		world_points[0] = LocalToWorld(tb, best_points.a);
-		world_points[1] = LocalToWorld(tb, best_points.b);
+		world_normal    = TransformDirection(tb, normal);
+		world_points[0] = TransformPoint(tb, best_points.a);
+		world_points[1] = TransformPoint(tb, best_points.b);
 	}
 
-	Vec2 c0 = LocalToWorld(ta, a.centers[0]);
-	Vec2 c1 = LocalToWorld(ta, a.centers[1]);
+	Vec2 c0 = TransformPoint(ta, a.centers[0]);
+	Vec2 c1 = TransformPoint(ta, a.centers[1]);
 
-	Vec2 e0 = LocalToWorld(tb, edge.a);
-	Vec2 e1 = LocalToWorld(tb, edge.b);
+	Vec2 e0 = TransformPoint(tb, edge.a);
+	Vec2 e1 = TransformPoint(tb, edge.b);
 
 	Vec2 dir1 = c1 - c0;
 	Vec2 dir2 = e1 - e0;
@@ -1222,10 +1313,10 @@ void CollideCapsulePolygon(const Fixture *fixture_a, const Fixture *fixture_b, R
 				world_points[1] = world_points[1] + offset * world_normal;
 
 				for (int i = 0; i < 2; ++i) {
-					Contact *contact     = PushContact(contacts, pair, fixture_a, fixture_b);
-					contact->point       = world_points[i];
-					contact->normal      = world_normal;
-					contact->penetration = penetration;
+					Contact_Manifold *manifold     = PushContact(contacts, pair, fixture_a, fixture_b);
+					manifold->point       = world_points[i];
+					manifold->normal      = world_normal;
+					manifold->penetration = penetration;
 				}
 
 				return;
@@ -1238,20 +1329,20 @@ void CollideCapsulePolygon(const Fixture *fixture_a, const Fixture *fixture_b, R
 		world_normal = Vec2(0, 1); // arbritrary normal
 	}
 
-	Contact *contact     = PushContact(contacts, pair, fixture_a, fixture_b);
-	contact->point       = world_points[1];
-	contact->normal      = world_normal;
-	contact->penetration = penetration;
+	Contact_Manifold *manifold     = PushContact(contacts, pair, fixture_a, fixture_b);
+	manifold->point       = world_points[1];
+	manifold->normal      = world_normal;
+	manifold->penetration = penetration;
 }
 
-void CollideCapsuleLine(const Fixture *fixture_a, const Fixture *fixture_b, Rigid_Body_Pair pair, Contact_List *contacts) {
-	const Capsule &a = FixtureShape<Capsule>(fixture_a);
-	const Line &b    = FixtureShape<Line>(fixture_b);
+void CollideCapsuleLine(const Shape *fixture_a, const Shape *fixture_b, Rigid_Body_Pair pair, Contact_List *contacts) {
+	const Capsule &a = GetShapeData<Capsule>(fixture_a);
+	const Line &b    = GetShapeData<Line>(fixture_b);
 
 	Vec2 centers[2];
-	centers[0]  = LocalToWorld(pair.bodies[0], a.centers[0]);
-	centers[1]  = LocalToWorld(pair.bodies[0], a.centers[1]);
-	Vec2 normal = LocalDirectionToWorld(pair.bodies[1], b.normal);
+	centers[0]  = TransformPoint(pair.bodies[0], a.centers[0]);
+	centers[1]  = TransformPoint(pair.bodies[0], a.centers[1]);
+	Vec2 normal = TransformDirection(pair.bodies[1], b.normal);
 
 	uint contact_count = 0;
 
@@ -1260,39 +1351,39 @@ void CollideCapsuleLine(const Fixture *fixture_a, const Fixture *fixture_b, Rigi
 		float dist      = perp_dist - a.radius - b.offset;
 
 		if (dist <= 0) {
-			Contact *contact     = PushContact(contacts, pair, fixture_a, fixture_b);
-			contact->point       = center - (dist + a.radius) * normal;
-			contact->normal      = normal;
-			contact->penetration = -dist;
+			Contact_Manifold *manifold     = PushContact(contacts, pair, fixture_a, fixture_b);
+			manifold->point       = center - (dist + a.radius) * normal;
+			manifold->normal      = normal;
+			manifold->penetration = -dist;
 
 			contact_count += 1;
 		}
 	}
 }
 
-void CollidePolygonLine(const Fixture *fixture_a, const Fixture *fixture_b, Rigid_Body_Pair pair, Contact_List *contacts) {
-	const Polygon &a = FixtureShape<Polygon>(fixture_a);
-	const Line &b    = FixtureShape<Line>(fixture_b);
+void CollidePolygonLine(const Shape *fixture_a, const Shape *fixture_b, Rigid_Body_Pair pair, Contact_List *contacts) {
+	const Polygon &a = GetShapeData<Polygon>(fixture_a);
+	const Line &b    = GetShapeData<Line>(fixture_b);
 
-	const Transform2d &ta = pair.bodies[0]->transform;
+	Transform2d ta   = GetRigidBodyTransform(pair.bodies[0]);
 
-	Vec2 world_normal = LocalDirectionToWorld(pair.bodies[1], b.normal);
-	Vec2 direction    = -WorldDirectionToLocal(ta, world_normal);
+	Vec2 world_normal = TransformDirection(pair.bodies[1], b.normal);
+	Vec2 direction    = -TransformDirectionTransposed(ta, world_normal);
 
 	Line_Segment edge = FurthestEdge(a, direction);
 
 	Vec2 vertices[] = { edge.a, edge.b };
 
 	for (Vec2 vertex : vertices) {
-		vertex     = LocalToWorld(ta, vertex);
+		vertex     = TransformPoint(ta, vertex);
 		float perp = DotProduct(world_normal, vertex);
 		float dist = perp - b.offset;
 
 		if (dist <= 0.0f) {
-			Contact *contact     = PushContact(contacts, pair, fixture_b, fixture_a);
-			contact->point       = vertex - dist * world_normal;
-			contact->normal      = world_normal;
-			contact->penetration = -dist;
+			Contact_Manifold *manifold     = PushContact(contacts, pair, fixture_b, fixture_a);
+			manifold->point       = vertex - dist * world_normal;
+			manifold->normal      = world_normal;
+			manifold->penetration = -dist;
 		}
 	}
 }
@@ -1304,7 +1395,7 @@ struct Farthest_Edge_Desc {
 };
 
 static Farthest_Edge_Desc FarthestEdgeDesc(const Polygon &polygon, const Transform2d &transform, Vec2 world_normal) {
-	Vec2 normal = WorldDirectionToLocal(transform, world_normal);
+	Vec2 normal = TransformDirectionTransposed(transform, world_normal);
 
 	uint index = FurthestVertexIndex(polygon, normal);
 
@@ -1329,22 +1420,22 @@ static Farthest_Edge_Desc FarthestEdgeDesc(const Polygon &polygon, const Transfo
 		edge.furthest_vertex = v;
 	}
 
-	edge.direction       = LocalDirectionToWorld(transform, edge.direction);
-	edge.vertices[0]     = LocalToWorld(transform, edge.vertices[0]);
-	edge.vertices[1]     = LocalToWorld(transform, edge.vertices[1]);
-	edge.furthest_vertex = LocalToWorld(transform, edge.furthest_vertex);
+	edge.direction       = TransformDirection(transform, edge.direction);
+	edge.vertices[0]     = TransformPoint(transform, edge.vertices[0]);
+	edge.vertices[1]     = TransformPoint(transform, edge.vertices[1]);
+	edge.furthest_vertex = TransformPoint(transform, edge.furthest_vertex);
 
 	return edge;
 }
 
 static Vec2 ProjectPolygon(const Polygon &polygon, const Transform2d &transform, Vec2 normal) {
-	Vec2 vertex = LocalToWorld(transform, polygon.vertices[0]);
+	Vec2 vertex = TransformPoint(transform, polygon.vertices[0]);
 
 	float min = DotProduct(normal, vertex);
 	float max = min;
 
 	for (ptrdiff_t i = 1; i < polygon.count; ++i) {
-		vertex = LocalToWorld(transform, polygon.vertices[i]);
+		vertex = TransformPoint(transform, polygon.vertices[i]);
 		float p = DotProduct(normal, vertex);
 		if (p < min)
 			min = p;
@@ -1375,12 +1466,12 @@ static bool PolygonPolygonOverlap(const Polygon &a, const Transform2d &ta, const
 	return false;
 }
 
-void CollidePolygonPolygon(const Fixture *fixture_a, const Fixture *fixture_b, Rigid_Body_Pair pair, Contact_List *contacts) {
-	const Polygon &a = FixtureShape<Polygon>(fixture_a);
-	const Polygon &b = FixtureShape<Polygon>(fixture_b);
+void CollidePolygonPolygon(const Shape *fixture_a, const Shape *fixture_b, Rigid_Body_Pair pair, Contact_List *contacts) {
+	const Polygon &a = GetShapeData<Polygon>(fixture_a);
+	const Polygon &b = GetShapeData<Polygon>(fixture_b);
 
-	const Transform2d &ta = pair.bodies[0]->transform;
-	const Transform2d &tb = pair.bodies[1]->transform;
+	Transform2d ta = GetRigidBodyTransform(pair.bodies[0]);
+	Transform2d tb = GetRigidBodyTransform(pair.bodies[1]);
 
 	// Separate Axis Theorem
 	float min_overlap = FLT_MAX;
@@ -1494,10 +1585,10 @@ void CollidePolygonPolygon(const Fixture *fixture_a, const Fixture *fixture_b, R
 			if (depth <= max_threshold) {
 				Vec2 p = reference.vertices[1] - points[i];
 
-				Contact *contact     = PushContact(contacts, pair, fixture_a, fixture_b);
-				contact->normal      = normal;
-				contact->point       = points[i];
-				contact->penetration = DotProduct(reference_normal, reference.vertices[0] - points[i]);
+				Contact_Manifold *manifold     = PushContact(contacts, pair, fixture_a, fixture_b);
+				manifold->normal      = normal;
+				manifold->point       = points[i];
+				manifold->penetration = DotProduct(reference_normal, reference.vertices[0] - points[i]);
 			}
 		}
 
@@ -1505,22 +1596,22 @@ void CollidePolygonPolygon(const Fixture *fixture_a, const Fixture *fixture_b, R
 	}
 
 	// Only single vertex is in the reference edge
-	Contact *contact     = PushContact(contacts, pair, fixture_a, fixture_b);
-	contact->normal      = normal;
-	contact->point       = incident.furthest_vertex;
-	contact->penetration = penetration;
+	Contact_Manifold *manifold     = PushContact(contacts, pair, fixture_a, fixture_b);
+	manifold->normal      = normal;
+	manifold->point       = incident.furthest_vertex;
+	manifold->penetration = penetration;
 }
 
-typedef void(*Collide_Proc)(const Fixture *, const Fixture *, Rigid_Body_Pair , Contact_List *);
+typedef void(*Collide_Proc)(const Shape *, const Shape *, Rigid_Body_Pair , Contact_List *);
 
-static Collide_Proc Collides[FIXTURE_SHAPE_COUNT][FIXTURE_SHAPE_COUNT] = {
+static Collide_Proc Collides[SHAPE_KIND_COUNT][SHAPE_KIND_COUNT] = {
 	{ CollideCircleCircle, CollideCircleCapsule,  CollideCirclePolygon,  CollideCircleLine,  },
 	{ nullptr,             CollideCapsuleCapsule, CollideCapsulePolygon, CollideCapsuleLine, },
 	{ nullptr,             nullptr,               CollidePolygonPolygon, CollidePolygonLine, },
 	{ nullptr,             nullptr,               nullptr,               nullptr             },
 };
 
-void Collide(Rigid_Body *body_first, Fixture *first, Rigid_Body *body_second, Fixture *second, Contact_List *contacts) {
+void Collide(Rigid_Body *body_first, Shape *first, Rigid_Body *body_second, Shape *second, Contact_List *contacts) {
 	if (first->shape > second->shape) {
 		Swap(&body_first, &body_second);
 		Swap(&first, &second);
@@ -1652,32 +1743,31 @@ int Main(int argc, char **argv) {
 	};
 
 	Rigid_Body boat = {};
-	boat.position        = Vec2(0);
-	boat.orientation     = Arm(0.0f);
-	boat.velocity        = Vec2(0);
-	boat.rotation        = 0.0f;
-	boat.damping         = 0.8f;
-	boat.angular_damping = 0.8f;
-	boat.inv_mass        = 1.0f / 800.0f;
-	boat.inv_inertia     = 800.0f * (Square(boat_half_width_lower) + Square(boat_half_height)) / 12.0f;
-	boat.acceleration    = Vec2(0, -10.0f);
-	boat.force           = Vec2(0);
-	boat.torque          = 0.0f;
-	boat.transform       = CalcTransform(&boat);
+	boat.P        = Vec2(0);
+	boat.W     = Arm(0.0f);
+	boat.dP        = Vec2(0);
+	boat.dW        = 0.0f;
+	boat.DF         = 0.8f;
+	boat.WDF = 0.8f;
+	boat.invM        = 1.0f / 800.0f;
+	boat.invI     = 800.0f * (Square(boat_half_width_lower) + Square(boat_half_height)) / 12.0f;
+	boat.d2P    = Vec2(0, -10.0f);
+	boat.F           = Vec2(0);
+	boat.T          = 0.0f;
 	boat.flags           = 0;
 
 	float ground_level = -2.0f;
 
 	Rigid_Body ground = {};
-	ground.position = Vec2(0, ground_level);
-	ground.velocity = Vec2(0);
-	ground.force    = Vec2(0);
-	ground.damping  = 1;
-	ground.inv_mass = 0;
+	ground.P = Vec2(0, ground_level);
+	ground.dP = Vec2(0);
+	ground.F    = Vec2(0);
+	ground.DF  = 1;
+	ground.invM = 0;
 
 	RandomRigidBodies(bodies);
 
-	Array<Contact> contacts;
+	Array<Contact_Manifold> contacts;
 	int iterations = 0;
 
 	Controller controller;
@@ -1807,7 +1897,7 @@ int Main(int argc, char **argv) {
 			//ApplyForce(&bodies[0], 10.0f * controller.axis);
 			ApplyBungee(&bodies[0], &bodies[1], Vec2(0), Vec2(0), 9.0f, 0.5f);
 
-			float submerged_height = ground.position.y - (boat.position.y - boat_half_height);
+			float submerged_height = ground.P.y - (boat.P.y - boat_half_height);
 
 			float volume = 0.5f * 2.0f * (boat_half_width_lower + boat_half_width_upper) * 2.0f * boat_half_height;
 			float submerged_volume = 0.5f * 2.0f * (boat_half_width_lower + boat_half_width_upper) * 2.0f * submerged_height;
@@ -1846,39 +1936,39 @@ int Main(int argc, char **argv) {
 
 			Reset(&contacts);
 
-			Contact contact;
+			Contact_Manifold manifold;
 			for (Rigid_Body &body : bodies) {
-				if (body.position.y <= ground.position.y) {
-					contact.pair.bodies[0]   = &body;
-					contact.pair.bodies[1]   = &ground;
-					contact.normal      = Vec2(0, 1);
-					contact.restitution = 0.5f;
-					contact.penetration = ground.position.y - body.position.y;
+				if (body.P.y <= ground.P.y) {
+					manifold.pair.bodies[0]   = &body;
+					manifold.pair.bodies[1]   = &ground;
+					manifold.normal      = Vec2(0, 1);
+					manifold.restitution = 0.5f;
+					manifold.penetration = ground.P.y - body.P.y;
 
-					Append(&contacts, contact);
+					Append(&contacts, manifold);
 				}
 			}
 
 #if 0
 			if (boat.position.y <= ground.position.y) {
-				contact.bodies[0]   = &boat;
-				contact.bodies[1]   = &ground;
-				contact.normal      = Vec2(0, 1);
-				contact.restitution = 0.5f;
-				contact.penetration = ground.position.y - boat.position.y;
+				manifold.bodies[0]   = &boat;
+				manifold.bodies[1]   = &ground;
+				manifold.normal      = Vec2(0, 1);
+				manifold.restitution = 0.5f;
+				manifold.penetration = ground.position.y - boat.position.y;
 
-				Append(&contacts, contact);
+				Append(&contacts, manifold);
 			}
 #endif
 
-			if (ApplyCableConstraint(&bodies[0], &bodies[1], 2, 0.0f, &contact)) {
-				Append(&contacts, contact);
+			if (ApplyCableConstraint(&bodies[0], &bodies[1], 2, 0.0f, &manifold)) {
+				Append(&contacts, manifold);
 			}
 
 			iterations = ResolveCollisions(contacts, 2 * (int)contacts.count, dt);
 
 			if (follow) {
-				camera_pos = Lerp(camera_pos, boat.position, 0.5f);
+				camera_pos = Lerp(camera_pos, boat.P, 0.5f);
 				camera_dist = Lerp(camera_dist, 0.8f, 0.1f);
 			} else {
 				camera_pos = Lerp(camera_pos, Vec2(0), 0.5f);
@@ -1973,63 +2063,49 @@ int Main(int argc, char **argv) {
 		//for (int i = 0; i < 4; ++i)
 		//	second_shape.vertices[i] = rect.center + RectVertexOffsets[i] * rect.half_size;
 
-		body1.transform.pos = init_pos + control * cursor_cam_pos;
-		body1.transform.rot = Rotation2x2(DegToRad(angle));
-		body2.transform.pos = Vec2(1, 0);
-		body2.transform.rot = Rotation2x2(DegToRad(15));
+		//body1.transform.pos = init_pos + control * cursor_cam_pos;
+		//body1.transform.rot = Rotation2x2(DegToRad(angle));
+		//body2.transform.pos = Vec2(1, 0);
+		//body2.transform.rot = Rotation2x2(DegToRad(15));
 
-		TFixture<Fixed_Polygon<5>> fix1 = { FIXTURE_SHAPE_POLYGON, first_shape };
-		TFixture<Fixed_Polygon<5>> fix2 = { FIXTURE_SHAPE_POLYGON, second_shape };
+		TShape<Fixed_Polygon<5>> fix1 = { SHAPE_KIND_POLYGON, first_shape };
+		TShape<Fixed_Polygon<5>> fix2 = { SHAPE_KIND_POLYGON, second_shape };
 
-		DrawShape(renderer, (Polygon &)first_shape, Vec4(1), body1.transform);
-		DrawShape(renderer, (Polygon &)second_shape, Vec4(1), body2.transform);
+		DrawShape(renderer, (Polygon &)first_shape, Vec4(1), GetRigidBodyTransform(&body1));
+		DrawShape(renderer, (Polygon &)second_shape, Vec4(1), GetRigidBodyTransform(&body2));
 		//R_DrawLine(renderer, first_shape.centers[0], first_shape.centers[1], Vec4(1));
 
 		Contact_List contacts;
-		contacts.first    = nullptr;
-		contacts.arena    = ThreadScratchpad();
-		contacts.fallback = {};
 
 		Collide(&body1, &fix1, &body2, &fix2, &contacts);
 
 		// origin
 		R_DrawRectCentered(renderer, Vec2(0), Vec2(0.1f), Vec4(1, 1, 0, 1));
 
-		for (Contact *contact = contacts.first; contact; contact = contact->next) {
-			R_DrawLine(renderer, contact->point, contact->point - contact->penetration * contact->normal, Vec4(0, 1, 0, 1));
-			R_DrawCircle(renderer, contact->point, 0.1f, Vec4(1, 1, 0, 1));
+		for (const Contact_Manifold &manifold : contacts) {
+			R_DrawLine(renderer, manifold.point, manifold.point - manifold.penetration * manifold.normal, Vec4(0, 1, 0, 1));
+			R_DrawCircle(renderer, manifold.point, 0.1f, Vec4(1, 1, 0, 1));
 		}
 
-#if 0
-		point = NearestPoint(body1.transform.pos, (Polygon &)polygon);
-		DrawShape(renderer, point, Vec4(1, 0, 0, 1));
-
-		Line_Segment edge = FurthestEdge((Polygon &)polygon, body1.transform.pos);
-
-		Vec4 color = Vec4(1, 1, 0, 1);
-		if (Determinant(edge.a - body1.transform.pos, edge.b - body1.transform.pos) <= 0.0f)
-			color = Vec4(0, 0, 1, 1);
-
-		DrawShape(renderer, edge, color);
-
+#if 1
 		R_DrawRectCentered(renderer, anchor, Vec2(0.1f), Vec4(1, 1, 0, 1));
 		for (const Rigid_Body &body : bodies) {
-			float radius = 1.0f / body.inv_mass;
-			R_DrawCircleOutline(renderer, body.position, radius, Vec4(1));
-			R_DrawRectCentered(renderer, body.position, Vec2(0.1f), Vec4(1));
+			float radius = 1.0f / body.invM;
+			R_DrawCircleOutline(renderer, body.P, radius, Vec4(1));
+			R_DrawRectCentered(renderer, body.P, Vec2(0.1f), Vec4(1));
 			//R_DrawLine(renderer, body.position, anchor, Vec4(1, 1, 0, 1));
 		}
 
-		float radius = 1.0f / bodies[0].inv_mass;
-		R_DrawCircleOutline(renderer, bodies[0].position, radius, Vec4(1, 0, 1, 1));
-		R_DrawRectCentered(renderer, bodies[0].position, Vec2(0.1f), Vec4(1));
+		float radius = 1.0f / bodies[0].invM;
+		R_DrawCircleOutline(renderer, bodies[0].P, radius, Vec4(1, 0, 1, 1));
+		R_DrawRectCentered(renderer, bodies[0].P, Vec2(0.1f), Vec4(1));
 
-		R_DrawLine(renderer, Vec2(-10.0f, ground.position.y), Vec2(10.0f, ground.position.y), Vec4(0, 0, 1, 1));
-		R_DrawLine(renderer, bodies[0].position, bodies[1].position, Vec4(1, 0, 0, 1));
+		R_DrawLine(renderer, Vec2(-10.0f, ground.P.y), Vec2(10.0f, ground.P.y), Vec4(0, 0, 1, 1));
+		R_DrawLine(renderer, bodies[0].P, bodies[1].P, Vec4(1, 0, 0, 1));
 
 		//Mat4 transform = Translation(Vec3(boat.position, 0.0f)) * RotationZ(Vec2Arg(boat.orientation)) * Translation(Vec3(-boat.position, 0.0f));
 
-		Mat4 transform = Translation(Vec3(boat.transform.pos, 0.0f)) * RotationZ(Vec2Arg(boat.orientation));
+		Mat4 transform = Translation(Vec3(boat.P, 0.0f)) * RotationZ(Vec2Arg(boat.W));
 
 		R_PushTransform(renderer, transform);
 

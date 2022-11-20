@@ -164,6 +164,9 @@
     <ClInclude Include="Magus\Kr\KrMathType.h">
       <Filter>Header Files</Filter>
     </ClInclude>
+    <ClInclude Include="Magus\KrPhysics.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
   </ItemGroup>
   <ItemGroup>
     <Natvis Include="Magus\Kr\KrVisualizer.natvis" />
