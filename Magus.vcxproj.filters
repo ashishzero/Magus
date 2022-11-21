@@ -69,7 +69,7 @@
     <ClCompile Include="Magus\Kr\KrRandom.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
-    <ClCompile Include="Magus\KrCollisionDetection.cpp">
+    <ClCompile Include="Magus\KrCollision.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
     <ClCompile Include="Magus\KrPhysics.cpp">
@@ -173,7 +173,7 @@
     <ClInclude Include="Magus\KrPhysics.h">
       <Filter>Header Files</Filter>
     </ClInclude>
-    <ClInclude Include="Magus\KrCollisionDetection.h">
+    <ClInclude Include="Magus\KrCollision.h">
       <Filter>Header Files</Filter>
     </ClInclude>
   </ItemGroup>

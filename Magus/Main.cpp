@@ -13,6 +13,7 @@
 #include "ResourceLoaders/Loaders.h"
 
 #include "KrPhysics.h"
+#include "KrCollision.h"
 
 enum Resource_Kind {
 	RESOURCE_FONT,
@@ -492,51 +493,29 @@ void ApplyBouyancy(Rigid_Body *body, Vec2 bouyancy_center, float submerged_volum
 }
 
 void PrepareForNextFrame(Rigid_Body *body) {
-	body->F     = Vec2(0);
-	body->T    = 0;
+	body->F = Vec2(0);
+	body->T = 0;
 }
 
 void Integrate(Rigid_Body *body, float dt) {
-	if (body->invM == 0.0f) return;
+	uint skip = RIGID_BODY_IS_STATIC | ~RIGID_BODY_IS_AWAKE;
+	if (body->Flags & skip)
+		return;
 
 	Vec2 d2P = body->d2P;
 	d2P += body->F * body->invM;
-	float d2W = body->T * body->invI;
-
 	body->dP += d2P * dt;
 	body->dP *= Pow(body->DF, dt);
-
-	body->dW += d2W * dt;
-	body->dW *= Pow(body->WDF, dt);
-
 	body->P += body->dP * dt;
-	body->W = ComplexProduct(body->W, Arm(body->dW * dt));
-	body->W = NormalizeZ(body->W);
+
+	if (body->Flags & RIGID_BODY_ROTATES) {
+		float d2W = body->T * body->invI;
+		body->dW += d2W * dt;
+		body->dW *= Pow(body->WDF, dt);
+		body->W = ComplexProduct(body->W, Arm(body->dW * dt));
+		body->W = NormalizeZ(body->W);
+	}
 }
-
-struct Rigid_Body_Pair {
-	Rigid_Body *bodies[2];
-};
-
-struct Contact_Solver_Data {
-	Mat2 transform;
-	Vec2 closing_velocity;
-	//Vec2 desired_delta_velocity;
-	Vec2 relative_positions[2];
-};
-
-struct Contact_Manifold {
-	Rigid_Body_Pair     pair;
-	Vec2                point;
-	Vec2                normal;
-	float               penetration;
-
-	// Surface information
-	float               restitution;
-	float               friction;
-
-	Contact_Solver_Data data;
-};
 
 #if 0
 
@@ -670,16 +649,16 @@ void ResolveVelocity(Contact_Manifold *manifold, float dt) {
 #endif
 
 float CalcSeparatingVelocity(Contact_Manifold *manifold) {
-	Rigid_Body *a = manifold->pair.bodies[0];
-	Rigid_Body *b = manifold->pair.bodies[1];
+	Rigid_Body *a = manifold->bodies[0];
+	Rigid_Body *b = manifold->bodies[1];
 	Vec2 relative = a->dP - b->dP;
 	float separation = DotProduct(relative, manifold->normal);
 	return separation;
 }
 
 void ResolveVelocity(Contact_Manifold *manifold, float dt) {
-	Rigid_Body *a = manifold->pair.bodies[0];
-	Rigid_Body *b = manifold->pair.bodies[1];
+	Rigid_Body *a = manifold->bodies[0];
+	Rigid_Body *b = manifold->bodies[1];
 
 	float inv_mass = a->invM + b->invM;
 	if (inv_mass <= 0) return;
@@ -709,8 +688,8 @@ void ResolveVelocity(Contact_Manifold *manifold, float dt) {
 }
 
 void ResolvePosition(Contact_Manifold *manifold) {
-	Rigid_Body *a = manifold->pair.bodies[0];
-	Rigid_Body *b = manifold->pair.bodies[1];
+	Rigid_Body *a = manifold->bodies[0];
+	Rigid_Body *b = manifold->bodies[1];
 
 	if (manifold->penetration > 0) {
 		float inv_mass = a->invM + b->invM;
@@ -755,8 +734,8 @@ int ApplyCableConstraint(Rigid_Body *a, Rigid_Body *b, float max_length, float r
 	if (length < max_length)
 		return 0;
 
-	manifold->pair.bodies[0]   = a;
-	manifold->pair.bodies[1]   = b;
+	manifold->bodies[0]   = a;
+	manifold->bodies[1]   = b;
 	manifold->normal      = NormalizeZ(b->P - a->P);
 	manifold->penetration = length - max_length;
 	manifold->restitution = restitution;
@@ -770,8 +749,8 @@ int ApplyRodConstraint(Rigid_Body *a, Rigid_Body *b, float length, Contact_Manif
 	if (curr_length == length)
 		return 0;
 
-	manifold->pair.bodies[0]   = a;
-	manifold->pair.bodies[1]   = b;
+	manifold->bodies[0]   = a;
+	manifold->bodies[1]   = b;
 	manifold->normal      = NormalizeZ(b->P - a->P) * Sgn(curr_length - length);
 	manifold->penetration = Absolute(curr_length - length);
 	manifold->restitution = 0;
@@ -785,8 +764,8 @@ int ApplyMagnetRepelConstraint(Rigid_Body *a, Rigid_Body *b, float max_length, f
 	if (length > max_length)
 		return 0;
 
-	manifold->pair.bodies[0]   = a;
-	manifold->pair.bodies[1]   = b;
+	manifold->bodies[0]   = a;
+	manifold->bodies[1]   = b;
 	manifold->normal      = NormalizeZ(a->P - b->P);
 	manifold->penetration = max_length - length;
 	manifold->restitution = restitution;
@@ -806,769 +785,11 @@ void RandomRigidBodies(Array_View<Rigid_Body> bodies) {
 		body.dW = 0;
 		body.F = Vec2(0);
 		body.d2P = Vec2(0, -10);
-		body.flags = 0;
+		body.Flags = 0;
 	}
 }
 
 // TODO: Continuous collision detection
-
-//
-//
-//
-
-void FillSurfaceData(Contact_Manifold *manifold, Rigid_Body_Pair pair, const Shape *first, const Shape *second) {
-	manifold->pair = pair;
-	//todo: fill rest of the data
-	//Unimplemented();
-	manifold->friction = 0;
-	manifold->restitution = 0;
-}
-
-using Contact_List = Array<Contact_Manifold>;
-
-Contact_Manifold *PushContact(Contact_List *contacts, Rigid_Body_Pair pair, const Shape *a, const Shape *b) {
-	Contact_Manifold *manifold = Append(contacts);
-	if (manifold) {
-		FillSurfaceData(manifold, pair, a, b);
-		return manifold;
-	}
-
-	static Contact_Manifold Fallback;
-	LogWarning("[Physics]: Failed to allocate new manifold point");
-	return &Fallback;
-}
-
-template <typename T>
-const T &GetShapeData(const Shape *_shape) {
-	const TShape<T> *shape = (const TShape<T> *)_shape;
-	return shape->data;
-}
-
-void CollideCircleCircle(const Shape *fixture_a, const Shape *fixture_b, Rigid_Body_Pair pair, Contact_List *contacts) {
-	const Circle &a = GetShapeData<Circle>(fixture_a);
-	const Circle &b = GetShapeData<Circle>(fixture_b);
-
-	Vec2 a_pos = LocalToWorld(pair.bodies[0], a.center);
-	Vec2 b_pos = LocalToWorld(pair.bodies[1], b.center);
-
-	Vec2 midline   = b_pos - a_pos;
-	float length2  = LengthSq(midline);
-	float min_dist = a.radius + b.radius;
-
-	if (length2 > min_dist * min_dist) {
-		return;
-	}
-
-	float length;
-	Vec2  normal;
-
-	if (length2) {
-		length = SquareRoot(length2);
-		normal = midline / length;
-	} else {
-		// Degenerate case (centers of circles are overlapping)
-		length = 0;
-		normal = Vec2(0, 1); // arbritray normal
-	}
-
-	float factor = a.radius / (a.radius + b.radius);
-
-	Contact_Manifold *manifold     = PushContact(contacts, pair, fixture_a, fixture_b);
-	manifold->point       = a_pos + factor * midline;
-	manifold->normal      = normal;
-	manifold->penetration = min_dist - length;
-}
-
-void CollideCircleCapsule(const Shape *fixture_a, const Shape *fixture_b, Rigid_Body_Pair pair, Contact_List *contacts) {
-	const Circle &a  = GetShapeData<Circle>(fixture_a);
-	const Capsule &b = GetShapeData<Capsule>(fixture_b);
-
-	Vec2 point = LocalToWorld(pair.bodies[0], a.center);
-
-	// Transform into Capsule's local space
-	point = WorldToLocal(pair.bodies[1], point);
-
-	Vec2 closest = NearestPointInLineSegment(point, b.centers[0], b.centers[1]);
-	float dist2 = LengthSq(closest - point);
-	float radius = a.radius + b.radius;
-
-	if (dist2 > radius * radius) {
-		return;
-	}
-
-	Vec2 midline = closest - point;
-
-	float length;
-	Vec2  normal;
-
-	if (dist2) {
-		length = SquareRoot(dist2);
-		normal = midline / length;
-	} else {
-		// Degenerate case (centers of circles are overlapping), using normal perpendicular vector of capsule line
-		length = 0;
-		normal = PerpendicularVector(b.centers[0], b.centers[1]);
-
-		if (!IsNull(normal))
-			normal = NormalizeZ(normal);
-		else
-			normal = Vec2(0, 1); // capsule is circle, using arbritrary normal
-	}
-
-	float factor = a.radius / radius;
-	Vec2 contact_point = point + factor * midline;
-
-	Contact_Manifold *manifold     = PushContact(contacts, pair, fixture_a, fixture_b);
-	manifold->point       = LocalToWorld(pair.bodies[1], contact_point);
-	manifold->normal      = LocalDirectionToWorld(pair.bodies[1], normal);
-	manifold->penetration = radius - length;
-}
-
-void CollideCirclePolygon(const Shape *fixture_a, const Shape *fixture_b, Rigid_Body_Pair pair, Contact_List *contacts) {
-	const Circle &a  = GetShapeData<Circle>(fixture_a);
-	const Polygon &b = GetShapeData<Polygon>(fixture_b);
-
-	Transform2d ta = CalculateRigidBodyTransform(pair.bodies[0]);
-	Transform2d tb = CalculateRigidBodyTransform(pair.bodies[1]);
-
-	Vec2 points[2];
-	if (GilbertJohnsonKeerthi(a.center, ta, b, tb, points)) {
-		Vec2 dir = points[1] - points[0];
-		float dist2 = LengthSq(points[0] - points[1]);
-
-		if (dist2 > a.radius * a.radius)
-			return;
-
-		float dist = SquareRoot(dist2);
-		Assert(dist != 0);
-
-		Contact_Manifold *manifold     = PushContact(contacts, pair, fixture_a, fixture_b);
-		manifold->point       = points[1];
-		manifold->normal      = dir / dist;
-		manifold->penetration = a.radius - dist;
-
-		return;
-	}
-
-	// Find the edge having the least distance from the origin of the circle
-	Vec2 center = TransformPoint(ta, a.center);
-	center = TransformPointTransposed(tb, center);
-
-	uint best_i = b.count - 1;
-	uint best_j = 0;
-
-	Vec2 point  = NearestPointInLineSegment(center, b.vertices[b.count - 1], b.vertices[0]);
-	float dist2 = LengthSq(point - center);
-
-	for (uint i = 0; i < b.count - 1; ++i) {
-		Vec2 next_point = NearestPointInLineSegment(center, b.vertices[i], b.vertices[i + 1]);
-		float new_dist2 = LengthSq(next_point - center);
-
-		if (new_dist2 < dist2) {
-			dist2  = new_dist2;
-			point  = next_point;
-			best_i = i;
-			best_j = i + 1;
-		}
-	}
-
-	float dist = SquareRoot(dist2);
-
-	Vec2 normal;
-	if (dist) {
-		normal = (center - point) / dist;
-	} else {
-		normal = PerpendicularVector(b.vertices[best_i], b.vertices[best_j]);
-		normal = NormalizeZ(normal);
-	}
-
-	Contact_Manifold *manifold     = PushContact(contacts, pair, fixture_a, fixture_b);
-	manifold->point       = TransformPoint(tb, point);
-	manifold->normal      = TransformDirection(tb, normal);
-	manifold->penetration = a.radius + dist;
-}
-
-void CollideCircleLine(const Shape *fixture_a, const Shape *fixture_b, Rigid_Body_Pair pair, Contact_List *contacts) {
-	const Circle &a = GetShapeData<Circle>(fixture_a);
-	const Line &b   = GetShapeData<Line>(fixture_b);
-
-	Vec2 a_pos  = LocalToWorld(pair.bodies[0], a.center);
-	Vec2 normal = LocalDirectionToWorld(pair.bodies[1], b.normal);
-
-	float perp_dist = DotProduct(normal, a_pos);
-
-	float dist = perp_dist - a.radius - b.offset;
-
-	if (dist > 0) {
-		return;
-	}
-
-	Contact_Manifold *manifold     = PushContact(contacts, pair, fixture_a, fixture_b);
-	manifold->point       = a_pos - (dist + a.radius) * normal;
-	manifold->normal      = normal;
-	manifold->penetration = -dist;
-}
-
-void CollideCapsuleCapsule(const Shape *fixture_a, const Shape *fixture_b, Rigid_Body_Pair pair, Contact_List *contacts) {
-	const Capsule &a = GetShapeData<Capsule>(fixture_a);
-	const Capsule &b = GetShapeData<Capsule>(fixture_b);
-
-	Transform2d ta = CalculateRigidBodyTransform(pair.bodies[0]);
-	Transform2d tb = CalculateRigidBodyTransform(pair.bodies[1]);
-
-	Line_Segment l1, l2;
-	l1.a = TransformPoint(ta, a.centers[0]);
-	l1.b = TransformPoint(ta, a.centers[1]);
-	l2.a = TransformPoint(tb, b.centers[0]);
-	l2.b = TransformPoint(tb, b.centers[1]);
-
-	Line_Segment points = NearestPointsInLineSegments(l1, l2);
-
-	Vec2  midline = points.b - points.a;
-	float dist2   = LengthSq(midline);
-	float radius  = a.radius + b.radius;
-
-	if (dist2 > radius * radius) {
-		return;
-	}
-
-	float dist = SquareRoot(dist2);
-
-	Vec2 dir1 = l1.b - l1.a;
-	Vec2 dir2 = l2.b - l2.a;
-
-	float length1 = LengthSq(dir1);
-	float length2 = LengthSq(dir2);
-
-	dir1 = NormalizeZ(dir1);
-	dir2 = NormalizeZ(dir2);
-
-	if (Absolute(Determinant(dir1, dir2)) <= REAL_EPSILON) {
-		// Capsules are parallel
-
-		if (length1 && length2) {
-			Line_Segment reference, incident;
-			Vec2 dir;
-
-			float incident_r;
-
-			if (length1 >= length2) {
-				dir        = dir1;
-				reference  = l1;
-				incident   = l2;
-				incident_r = b.radius;
-			} else {
-				dir        = dir2;
-				reference  = l2;
-				incident   = l1;
-				incident_r = a.radius;
-			}
-
-			float min = DotProduct(dir, reference.a);
-			float max = DotProduct(dir, reference.b);
-			float d1  = DotProduct(dir, incident.a);
-			float d2  = DotProduct(dir, incident.b);
-
-			// capsules are stacked
-			if (IsInRange(min, max, d1) || IsInRange(min, max, d2)) {
-				float clipped_d1 = Clamp(min, max, d1);
-				float clipped_d2 = Clamp(min, max, d2);
-
-				Vec2 normal = Vec2(-dir.y, dir.x);
-				normal = NormalizeZ(normal);
-				if (DotProduct(normal, midline) < 0.0f)
-					normal = -normal;
-
-				float penetration = radius - dist;
-				float inv_range   = 1.0f / (d2 - d1);
-
-				float factor = incident_r / radius;
-
-				Vec2 points[2];
-				points[0] = incident.a + (clipped_d1 - d1) * inv_range * (incident.b - incident.a);
-				points[1] = incident.a + (clipped_d2 - d1) * inv_range * (incident.b - incident.a);
-				points[0] = points[0] - factor * normal * dist;
-				points[1] = points[1] - factor * normal * dist;
-
-				for (int i = 0; i < 2; ++i) {
-					Contact_Manifold *manifold     = PushContact(contacts, pair, fixture_a, fixture_b);
-					manifold->point       = points[i];
-					manifold->normal      = normal;
-					manifold->penetration = penetration;
-				}
-
-				return;
-			}
-		}
-	}
-
-	Vec2 normal;
-	if (dist) {
-		normal = midline / dist;
-	} else {
-		// capsules are intersecting, degenerate case
-		normal = TransformDirection(ta, Vec2(0, 1)); // using arbritrary normal
-	}
-
-	float factor       = a.radius / radius;
-	Vec2 contact_point = points.a + factor * midline;
-
-	Contact_Manifold *manifold     = PushContact(contacts, pair, fixture_a, fixture_b);
-	manifold->point       = contact_point;
-	manifold->normal      = normal;
-	manifold->penetration = radius - dist;
-}
-
-void CollideCapsulePolygon(const Shape *fixture_a, const Shape *fixture_b, Rigid_Body_Pair pair, Contact_List *contacts) {
-	const Capsule &a = GetShapeData<Capsule>(fixture_a);
-	const Polygon &b = GetShapeData<Polygon>(fixture_b);
-
-	Transform2d ta = CalculateRigidBodyTransform(pair.bodies[0]);
-	Transform2d tb = CalculateRigidBodyTransform(pair.bodies[1]);
-
-	float dist;
-
-	float        penetration;
-	Line_Segment edge;
-	Vec2         world_normal;
-	Vec2         world_points[2];
-
-	if (GilbertJohnsonKeerthi(Line_Segment{ a.centers[0], a.centers[1] }, ta, b, tb, world_points)) {
-		// capsule's line does not intersect the polygon (shallow case)
-		float dist2 = LengthSq(world_points[1] - world_points[0]);
-
-		if (dist2 > a.radius * a.radius) {
-			return;
-		}
-
-		dist = SquareRoot(dist2);
-		penetration = a.radius - dist;
-		edge = FurthestEdge(b, TransformPointTransposed(tb, world_points[1]));
-
-		world_normal = world_points[1] - world_points[0];
-
-		if (IsNull(world_normal)) {
-			world_normal = PerpendicularVector(edge.a, edge.b);
-			world_normal = TransformDirection(tb, world_normal);
-		}
-
-		world_normal = NormalizeZ(world_normal);
-	} else {
-		Vec2 c0 = TransformPoint(ta, a.centers[0]);
-		Vec2 c1 = TransformPoint(ta, a.centers[1]);
-
-		c0 = TransformPointTransposed(tb, c0);
-		c1 = TransformPointTransposed(tb, c1);
-
-		uint best_i = b.count - 1;
-		uint best_j = 0;
-
-		Line_Segment best_points = NearestPointsInLineSegments(c0, c1, b.vertices[best_i], b.vertices[best_j]);
-		float best_dist2 = LengthSq(best_points.b - best_points.a);
-
-		for (uint next_i = 0; next_i < b.count - 1; ++next_i) {
-			uint next_j = next_i + 1;
-
-			Line_Segment next_points = NearestPointsInLineSegments(c0, c1, b.vertices[next_i], b.vertices[next_j]);
-			float next_dist2 = LengthSq(next_points.b - next_points.a);
-
-			if (next_dist2 < best_dist2) {
-				best_dist2  = next_dist2;
-				best_points = next_points;
-				best_i = next_i;
-				best_j = next_j;
-			}
-		}
-
-		Vec2 normal = PerpendicularVector(b.vertices[best_i], b.vertices[best_j]);
-		normal      = NormalizeZ(normal);
-
-		edge        = { b.vertices[best_i],b.vertices[best_j] };
-
-		float t;
-		if (LineLineIntersection(c0, c1, b.vertices[best_i], b.vertices[best_j], &t)) {
-			dist        = SquareRoot(best_dist2);
-			penetration = a.radius + dist;
-		} else {
-			float proj = DotProduct(normal, best_points.a - c0);
-			if (proj < 0.0f) {
-				penetration = a.radius - proj;
-			} else {
-				penetration = a.radius - DotProduct(normal, best_points.b - c1);
-			}
-			dist = 0.0f;
-		}
-
-		world_normal    = TransformDirection(tb, normal);
-		world_points[0] = TransformPoint(tb, best_points.a);
-		world_points[1] = TransformPoint(tb, best_points.b);
-	}
-
-	Vec2 c0 = TransformPoint(ta, a.centers[0]);
-	Vec2 c1 = TransformPoint(ta, a.centers[1]);
-
-	Vec2 e0 = TransformPoint(tb, edge.a);
-	Vec2 e1 = TransformPoint(tb, edge.b);
-
-	Vec2 dir1 = c1 - c0;
-	Vec2 dir2 = e1 - e0;
-
-	float length1 = LengthSq(dir1);
-	float length2 = LengthSq(dir2);
-
-	dir1 = NormalizeZ(dir1);
-	dir2 = NormalizeZ(dir2);
-
-	if (Absolute(Determinant(dir1, dir2)) <= REAL_EPSILON) {
-		// capsule is parallel to some edge of polygon
-
-		if (length1 && length2) {
-			Line_Segment reference, incident;
-			Vec2 dir;
-
-			float factor;
-
-			if (length1 >= length2) {
-				dir       = dir1;
-				reference = { c0,c1 };
-				incident  = { e0,e1 };
-				factor    = 0.0f;
-			} else {
-				dir       = dir2;
-				reference = { e0,e1 };
-				incident  = { c0,c1 };
-				factor    = 1.0f;
-			}
-
-			float min = DotProduct(dir, reference.a);
-			float max = DotProduct(dir, reference.b);
-			float d1  = DotProduct(dir, incident.a);
-			float d2  = DotProduct(dir, incident.b);
-
-			// capsules is stacked
-			if (IsInRange(min, max, d1) || IsInRange(min, max, d2)) {
-				float clipped_d1 = Clamp(min, max, d1);
-				float clipped_d2 = Clamp(min, max, d2);
-
-				float inv_range   = 1.0f / (d2 - d1);
-
-				float offset = factor * Min(dist, a.radius);
-
-				world_points[0] = incident.a + (clipped_d1 - d1) * inv_range * (incident.b - incident.a);
-				world_points[1] = incident.a + (clipped_d2 - d1) * inv_range * (incident.b - incident.a);
-				world_points[0] = world_points[0] + offset * world_normal;
-				world_points[1] = world_points[1] + offset * world_normal;
-
-				for (int i = 0; i < 2; ++i) {
-					Contact_Manifold *manifold     = PushContact(contacts, pair, fixture_a, fixture_b);
-					manifold->point       = world_points[i];
-					manifold->normal      = world_normal;
-					manifold->penetration = penetration;
-				}
-
-				return;
-			}
-		}
-	}
-
-	if (IsNull(world_normal)) {
-		// overlapping center
-		world_normal = Vec2(0, 1); // arbritrary normal
-	}
-
-	Contact_Manifold *manifold     = PushContact(contacts, pair, fixture_a, fixture_b);
-	manifold->point       = world_points[1];
-	manifold->normal      = world_normal;
-	manifold->penetration = penetration;
-}
-
-void CollideCapsuleLine(const Shape *fixture_a, const Shape *fixture_b, Rigid_Body_Pair pair, Contact_List *contacts) {
-	const Capsule &a = GetShapeData<Capsule>(fixture_a);
-	const Line &b    = GetShapeData<Line>(fixture_b);
-
-	Vec2 centers[2];
-	centers[0]  = LocalToWorld(pair.bodies[0], a.centers[0]);
-	centers[1]  = LocalToWorld(pair.bodies[0], a.centers[1]);
-	Vec2 normal = LocalDirectionToWorld(pair.bodies[1], b.normal);
-
-	uint contact_count = 0;
-
-	for (Vec2 center : centers) {
-		float perp_dist = DotProduct(b.normal, center);
-		float dist      = perp_dist - a.radius - b.offset;
-
-		if (dist <= 0) {
-			Contact_Manifold *manifold     = PushContact(contacts, pair, fixture_a, fixture_b);
-			manifold->point       = center - (dist + a.radius) * normal;
-			manifold->normal      = normal;
-			manifold->penetration = -dist;
-
-			contact_count += 1;
-		}
-	}
-}
-
-void CollidePolygonLine(const Shape *fixture_a, const Shape *fixture_b, Rigid_Body_Pair pair, Contact_List *contacts) {
-	const Polygon &a = GetShapeData<Polygon>(fixture_a);
-	const Line &b    = GetShapeData<Line>(fixture_b);
-
-	Vec2 world_normal = LocalDirectionToWorld(pair.bodies[1], b.normal);
-	Vec2 direction    = -WorldDirectionToLocal(pair.bodies[0], world_normal);
-
-	Line_Segment edge = FurthestEdge(a, direction);
-
-	Vec2 vertices[] = { edge.a, edge.b };
-	Transform2d ta  = CalculateRigidBodyTransform(pair.bodies[0]);
-
-	for (Vec2 vertex : vertices) {
-		vertex     = TransformPoint(ta, vertex);
-		float perp = DotProduct(world_normal, vertex);
-		float dist = perp - b.offset;
-
-		if (dist <= 0.0f) {
-			Contact_Manifold *manifold     = PushContact(contacts, pair, fixture_b, fixture_a);
-			manifold->point       = vertex - dist * world_normal;
-			manifold->normal      = world_normal;
-			manifold->penetration = -dist;
-		}
-	}
-}
-
-struct Farthest_Edge_Desc {
-	Vec2 direction;
-	Vec2 vertices[2];
-	Vec2 furthest_vertex;
-};
-
-static Farthest_Edge_Desc FarthestEdgeDesc(const Polygon &polygon, const Transform2d &transform, Vec2 world_normal) {
-	Vec2 normal = TransformDirectionTransposed(transform, world_normal);
-
-	uint index = FurthestVertexIndex(polygon, normal);
-
-	Vec2 v  = polygon.vertices[index];
-	Vec2 v0 = index ? polygon.vertices[index - 1] : polygon.vertices[polygon.count - 1];
-	Vec2 v1 = index + 1 < polygon.count ? polygon.vertices[index + 1] : polygon.vertices[0];
-
-	Vec2 d0 = NormalizeZ(v - v0);
-	Vec2 d1 = NormalizeZ(v - v1);
-
-	Farthest_Edge_Desc  edge;
-
-	if (DotProduct(d0, normal) <= DotProduct(d1, normal)) {
-		edge.direction       = d0;
-		edge.vertices[0]     = v0;
-		edge.vertices[1]     = v;
-		edge.furthest_vertex = v;
-	} else {
-		edge.direction       = -d1;
-		edge.vertices[0]     = v;
-		edge.vertices[1]     = v1;
-		edge.furthest_vertex = v;
-	}
-
-	edge.direction       = TransformDirection(transform, edge.direction);
-	edge.vertices[0]     = TransformPoint(transform, edge.vertices[0]);
-	edge.vertices[1]     = TransformPoint(transform, edge.vertices[1]);
-	edge.furthest_vertex = TransformPoint(transform, edge.furthest_vertex);
-
-	return edge;
-}
-
-static Vec2 ProjectPolygon(const Polygon &polygon, const Transform2d &transform, Vec2 normal) {
-	Vec2 vertex = TransformPoint(transform, polygon.vertices[0]);
-
-	float min = DotProduct(normal, vertex);
-	float max = min;
-
-	for (ptrdiff_t i = 1; i < polygon.count; ++i) {
-		vertex = TransformPoint(transform, polygon.vertices[i]);
-		float p = DotProduct(normal, vertex);
-		if (p < min)
-			min = p;
-		else if (p > max)
-			max = p;
-	}
-
-	return Vec2(min, max);
-}
-
-static bool PolygonPolygonOverlap(const Polygon &a, const Transform2d &ta, const Polygon &b, const Transform2d &tb, Vec2 normal, float *overlap) {
-	Vec2 p1 = ProjectPolygon(a, ta, normal);
-	Vec2 p2 = ProjectPolygon(b, tb, normal);
-
-	if (p2.y > p1.x && p1.y > p2.x) {
-		*overlap = Min(p1.y, p2.y) - Max(p1.x, p2.x);
-
-		// if one contains the either
-		if (p1.x > p2.x && p1.y < p2.y) {
-			*overlap += Min(p1.x - p2.x, p2.y - p1.y);
-		} else if (p2.x > p1.x && p2.y < p1.y) {
-			*overlap += Min(p2.x - p1.x, p1.y - p2.y);
-		}
-
-		return true;
-	}
-
-	return false;
-}
-
-void CollidePolygonPolygon(const Shape *fixture_a, const Shape *fixture_b, Rigid_Body_Pair pair, Contact_List *contacts) {
-	const Polygon &a = GetShapeData<Polygon>(fixture_a);
-	const Polygon &b = GetShapeData<Polygon>(fixture_b);
-
-	Transform2d ta = CalculateRigidBodyTransform(pair.bodies[0]);
-	Transform2d tb = CalculateRigidBodyTransform(pair.bodies[1]);
-
-	// Separate Axis Theorem
-	float min_overlap = FLT_MAX;
-	Vec2 best_normal  = Vec2(0, 0);
-
-	float overlap;
-
-	uint i = a.count - 1;
-	uint j = 0;
-
-	Vec2 normal = NormalizeZ(PerpendicularVector(a.vertices[i], a.vertices[j]));
-	if (!PolygonPolygonOverlap(a, ta, b, tb, normal, &overlap))
-		return;
-
-	if (overlap < min_overlap) {
-		min_overlap = overlap;
-		best_normal = -normal;
-	}
-
-	for (i = 0; i < a.count - 1; ++i) {
-		j = i + 1;
-
-		normal = NormalizeZ(PerpendicularVector(a.vertices[i], a.vertices[j]));
-		if (!PolygonPolygonOverlap(a, ta, b, tb, normal, &overlap))
-			return;
-
-		if (overlap < min_overlap) {
-			min_overlap = overlap;
-			best_normal = -normal;
-		}
-	}
-
-	i = b.count - 1;
-	j = 0;
-
-	normal = NormalizeZ(PerpendicularVector(b.vertices[i], b.vertices[j]));
-	if (!PolygonPolygonOverlap(a, ta, b, tb, normal, &overlap))
-		return;
-
-	if (overlap < min_overlap) {
-		min_overlap = overlap;
-		best_normal = normal;
-	}
-
-	for (i = 0; i < b.count - 1; ++i) {
-		j = i + 1;
-
-		normal = NormalizeZ(PerpendicularVector(b.vertices[i], b.vertices[j]));
-		if (!PolygonPolygonOverlap(a, ta, b, tb, normal, &overlap))
-			return;
-
-		if (overlap < min_overlap) {
-			min_overlap = overlap;
-			best_normal = normal;
-		}
-	}
-
-	if (DotProduct(best_normal, tb.pos - ta.pos) < 0.0f)
-		best_normal = -best_normal;
-
-	float penetration = overlap;
-	normal            = best_normal;
-
-	Farthest_Edge_Desc edge_a = FarthestEdgeDesc(a, ta, normal);
-	Farthest_Edge_Desc edge_b = FarthestEdgeDesc(b, tb, -normal);
-
-	Farthest_Edge_Desc reference, incident;
-
-	float dot_a = Absolute(DotProduct(edge_a.direction, normal));
-	float dot_b = Absolute(DotProduct(edge_b.direction, normal));
-
- 	if (dot_a < dot_b) {
-		reference = edge_a;
-		incident  = edge_b;
-	} else if (dot_b < dot_a) {
-		reference = edge_b;
-		incident  = edge_a;
-	} else {
-		if (LengthSq(edge_a.vertices[1] - edge_a.vertices[0]) >= LengthSq(edge_b.vertices[1] - edge_b.vertices[0])) {
-			reference = edge_a;
-			incident  = edge_b;
-		} else {
-			reference = edge_b;
-			incident  = edge_a;
-		}
-	}
-
-	float d1  = DotProduct(reference.direction, incident.vertices[0]);
-	float d2  = DotProduct(reference.direction, incident.vertices[1]);
-	float d   = d2 - d1;
-
-	if (d) {
-		float min = DotProduct(reference.direction, reference.vertices[0]);
-		float max = DotProduct(reference.direction, reference.vertices[1]);
-
-		float clipped_d1 = Clamp(min, max, d1);
-		float clipped_d2 = Clamp(min, max, d2);
-		float inv_range  = 1.0f / (d2 - d1);
-
-		Vec2 points[2];
-		Vec2 relative = incident.vertices[1] - incident.vertices[0];
-		points[0]     = incident.vertices[0] + (clipped_d1 - d1) * inv_range * relative;
-		points[1]     = incident.vertices[0] + (clipped_d2 - d1) * inv_range * relative;
-
-		Vec2 reference_normal = Vec2(reference.direction.y, -reference.direction.x);
-		float max_threshold   = DotProduct(reference_normal, reference.furthest_vertex);
-
-		for (uint i = 0; i < 2; ++i){
-			float depth = DotProduct(reference_normal, points[i]);
-
-			if (depth <= max_threshold) {
-				Vec2 p = reference.vertices[1] - points[i];
-
-				Contact_Manifold *manifold     = PushContact(contacts, pair, fixture_a, fixture_b);
-				manifold->normal      = normal;
-				manifold->point       = points[i];
-				manifold->penetration = DotProduct(reference_normal, reference.vertices[0] - points[i]);
-			}
-		}
-
-		return;
-	}
-
-	// Only single vertex is in the reference edge
-	Contact_Manifold *manifold     = PushContact(contacts, pair, fixture_a, fixture_b);
-	manifold->normal      = normal;
-	manifold->point       = incident.furthest_vertex;
-	manifold->penetration = penetration;
-}
-
-typedef void(*Collide_Proc)(const Shape *, const Shape *, Rigid_Body_Pair , Contact_List *);
-
-static Collide_Proc Collides[SHAPE_KIND_COUNT][SHAPE_KIND_COUNT] = {
-	{ CollideCircleCircle, CollideCircleCapsule,  CollideCirclePolygon,  CollideCircleLine,  },
-	{ nullptr,             CollideCapsuleCapsule, CollideCapsulePolygon, CollideCapsuleLine, },
-	{ nullptr,             nullptr,               CollidePolygonPolygon, CollidePolygonLine, },
-	{ nullptr,             nullptr,               nullptr,               nullptr             },
-};
-
-void Collide(Rigid_Body *body_first, Shape *first, Rigid_Body *body_second, Shape *second, Contact_List *contacts) {
-	if (first->shape > second->shape) {
-		Swap(&body_first, &body_second);
-		Swap(&first, &second);
-	}
-
-	Rigid_Body_Pair pair;
-	pair.bodies[0] = body_first;
-	pair.bodies[1] = body_second;
-
-	Collides[first->shape][second->shape](first, second, pair, contacts);
-}
 
 //
 //
@@ -1700,7 +921,7 @@ int Main(int argc, char **argv) {
 	boat.d2P    = Vec2(0, -10.0f);
 	boat.F           = Vec2(0);
 	boat.T          = 0.0f;
-	boat.flags           = 0;
+	boat.Flags           = 0;
 
 	float ground_level = -2.0f;
 
@@ -1885,8 +1106,8 @@ int Main(int argc, char **argv) {
 			Contact_Manifold manifold;
 			for (Rigid_Body &body : bodies) {
 				if (body.P.y <= ground.P.y) {
-					manifold.pair.bodies[0]   = &body;
-					manifold.pair.bodies[1]   = &ground;
+					manifold.bodies[0]   = &body;
+					manifold.bodies[1]   = &ground;
 					manifold.normal      = Vec2(0, 1);
 					manifold.restitution = 0.5f;
 					manifold.penetration = ground.P.y - body.P.y;
@@ -1895,13 +1116,13 @@ int Main(int argc, char **argv) {
 				}
 			}
 
-#if 0
-			if (boat.position.y <= ground.position.y) {
+#if 1
+			if (boat.P.y <= ground.P.y) {
 				manifold.bodies[0]   = &boat;
 				manifold.bodies[1]   = &ground;
 				manifold.normal      = Vec2(0, 1);
 				manifold.restitution = 0.5f;
-				manifold.penetration = ground.position.y - boat.position.y;
+				manifold.penetration = ground.P.y - boat.P.y;
 
 				Append(&contacts, manifold);
 			}
@@ -1947,93 +1168,10 @@ int Main(int argc, char **argv) {
 		camera_transform      = Identity();
 		Mat4 world_transform  = Inverse(camera_transform);
 
-		// FIXTURE_SHAPE_CIRCLE,
-		// FIXTURE_SHAPE_CAPSULE,
-		// FIXTURE_SHAPE_POLYGON,
-		// FIXTURE_SHAPE_LINE,
-
-		/*
-				circle	capsule	polygon	line
-		circle    .      .        .       .
-		capsule   x      .        .       .
-		polygon   x      x        .       .
-		line      x      x        x       x
-		*/
-
 		// TODO: replace mat4 with transform2d in renderer
 		R_PushTransform(renderer, world_transform);
 		R_DrawCircle(renderer, cursor_cam_pos, 0.1f, Vec4(1));
 
-		Capsule capsule;
-		capsule.centers[0] = Vec2(-1, 0);
-		capsule.centers[1] = Vec2(1, 0);
-		capsule.radius = 1;
-
-		//Line_Segment line;
-		//line.a = Vec2(-1, -3);
-		//line.b = Vec2(1, 1);
-
-		Circle circle;
-		circle.center = Vec2(0, 1);
-		circle.radius = 1.5f;
-
-		Rect rect;
-		rect.center = Vec2(0, 0);
-		rect.half_size = Vec2(2, 1);
-
-		Line line;
-		line.normal = Normalize(Vec2(0, 1));
-		line.offset = 1;
-
-		Fixed_Polygon<5> polygon;
-		polygon.count = 5;
-		polygon.vertices[0] = Vec2(2, 0);
-		polygon.vertices[1] = Vec2(0, 2);
-		polygon.vertices[2] = Vec2(-2, 0);
-		polygon.vertices[3] = Vec2(-1, -2);
-		polygon.vertices[4] = Vec2(1, -2);
-
-		Vec2 point = Vec2(0, 0);
-
-		Rigid_Body body1 = {};
-		Rigid_Body body2 = {};
-
-		Fixed_Polygon<5> first_shape = polygon;
-		Fixed_Polygon<5> second_shape = polygon;
-
-		/*first_shape.count = 4;
-		for (int i = 0; i < 4; ++i)
-			first_shape.vertices[i] = Vec2(0, 0.0f) + RectVertexOffsets[i] * Vec2(1);
-		*/
-		//second_shape.count = 4;
-		//for (int i = 0; i < 4; ++i)
-		//	second_shape.vertices[i] = rect.center + RectVertexOffsets[i] * rect.half_size;
-
-		//body1.transform.pos = init_pos + control * cursor_cam_pos;
-		//body1.transform.rot = Rotation2x2(DegToRad(angle));
-		//body2.transform.pos = Vec2(1, 0);
-		//body2.transform.rot = Rotation2x2(DegToRad(15));
-
-		TShape<Fixed_Polygon<5>> fix1 = { SHAPE_KIND_POLYGON, first_shape };
-		TShape<Fixed_Polygon<5>> fix2 = { SHAPE_KIND_POLYGON, second_shape };
-
-		DrawShape(renderer, (Polygon &)first_shape, Vec4(1), CalculateRigidBodyTransform(&body1));
-		DrawShape(renderer, (Polygon &)second_shape, Vec4(1), CalculateRigidBodyTransform(&body2));
-		//R_DrawLine(renderer, first_shape.centers[0], first_shape.centers[1], Vec4(1));
-
-		Contact_List contacts;
-
-		Collide(&body1, &fix1, &body2, &fix2, &contacts);
-
-		// origin
-		R_DrawRectCentered(renderer, Vec2(0), Vec2(0.1f), Vec4(1, 1, 0, 1));
-
-		for (const Contact_Manifold &manifold : contacts) {
-			R_DrawLine(renderer, manifold.point, manifold.point - manifold.penetration * manifold.normal, Vec4(0, 1, 0, 1));
-			R_DrawCircle(renderer, manifold.point, 0.1f, Vec4(1, 1, 0, 1));
-		}
-
-#if 1
 		R_DrawRectCentered(renderer, anchor, Vec2(0.1f), Vec4(1, 1, 0, 1));
 		for (const Rigid_Body &body : bodies) {
 			float radius = 1.0f / body.invM;
@@ -2061,9 +1199,6 @@ int Main(int argc, char **argv) {
 		R_PathTo(renderer, Vec2(boat_half_width_lower, -boat_half_height));
 
 		R_DrawPathStroked(renderer, Vec4(1), true);
-
-		R_PopTransform(renderer);
-#endif
 
 		R_PopTransform(renderer);
 
