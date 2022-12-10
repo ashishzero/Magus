@@ -404,7 +404,7 @@ void DrawAnimation(R_Renderer2d *renderer, Vec2 pos, Vec2 dim, const Animation &
 //
 //
 
-constexpr int MAX_STATE = 2;
+constexpr int MAX_STATE = 50;
 
 struct State {
 	Vec2 x[MAX_STATE];
@@ -513,21 +513,80 @@ Vec2 ComputeSpringForce(Vec2 a, Vec2 b, Vec2 v, float k1, float k2, float length
 	return (-k1 * x * NormalizeZ(a - b) - k2 * v);
 }
 
-struct Mass_Spring : System {
-	float k1 = 15.0f;
-	float k2 = 0.0f;
-	float mass = 2.0f;
-	float length = 4.0f;
+Vec2 ComputeBungeeForce(Vec2 a, Vec2 b, Vec2 v, float k1, float k2, float length) {
+	float dist = Distance(a, b);
 
+	if (dist <= length) return Vec2(0);
+
+	float x = dist - length;
+	return (-k1 * x * NormalizeZ(a - b) - k2 * v);
+}
+
+struct Rigid_Body {
+	float imass;
+	Vec2  acceleration;
+	Vec2  force;
+};
+
+Rigid_Body bodies[MAX_STATE];
+
+struct Force_Generator {
+	virtual void Generate(Rigid_Body *bodies, const State &state, float t) = 0;
+};
+
+struct Rope_Force_Generator : Force_Generator {
+	float k1     = 0.5f;
+	float k2     = 0.1f;
+	float length = 0.1f;
+
+	uint indices[2] = { 0,1 };
+
+	Rope_Force_Generator() = default;
+	Rope_Force_Generator(uint i, uint j, float rest) {
+		indices[0] = i;
+		indices[1] = j;
+		length = rest;
+	}
+
+	virtual void Generate(Rigid_Body *bodies, const State &state, float t) {
+		uint i = indices[0], j = indices[1];
+		Vec2 v = state.v[i] - state.v[j];
+		Vec2 f = ComputeBungeeForce(state.x[i], state.x[j], v, k1, k2, length);
+
+		bodies[i].force += f;
+		bodies[j].force -= f;
+	}
+};
+
+void ClearForces() {
+	for (int i = 0; i < MAX_STATE; ++i) {
+		bodies[i].force = Vec2(0);
+	}
+}
+
+static Array<Rope_Force_Generator *> Forces;
+
+static Force_Generator *Dragging;
+
+void ComputeForces(const State &state, float t) {
+	for (Force_Generator *force : Forces) {
+		force->Generate(bodies, state, t);
+	}
+	if (Dragging) {
+		Dragging->Generate(bodies, state, t);
+	}
+}
+
+struct Rigid_Body_System : System {
 	virtual Derivative Evaluate(const State &state, float t) const {
-		Vec2 rv = state.v[0] - state.v[1];
-		Vec2 f = ComputeSpringForce(state.x[0], state.x[1], rv, k1, k2, length);
+		ClearForces();
+		ComputeForces(state, t);
 
 		Derivative d;
-		d.dx[0] = state.v[0];
-		d.dx[1] = state.v[1];
-		d.dv[0] = f / mass;
-		d.dv[1] = -f / mass;
+		for (int i = 0; i < MAX_STATE; ++i) {
+			d.dx[i] = state.v[i];
+			d.dv[i] = bodies[i].force * bodies[i].imass + bodies[i].acceleration;
+		}
 		return d;
 	}
 };
@@ -547,6 +606,37 @@ void DrawSpring(R_Renderer2d *renderer, Vec2 a, Vec2 b, float relaxed_length, in
 		R_PathTo(renderer, p);
 	}
 	R_DrawPathStroked(renderer, Vec4(1, 1, 1, 1));
+}
+
+struct Dragging_Force_Generator : Force_Generator {
+	uint i = 0;
+	Vec2 pos = Vec2(0);
+
+	float k = 1;
+
+	virtual void Generate(Rigid_Body *bodies, const State &state, float t) {
+		Vec2 x = state.x[i];
+		float dist = Distance(x, pos);
+
+		bodies[i].force += dist * k * NormalizeZ(pos - x);
+	}
+};
+
+uint FindNearestBody(const State &state, Vec2 p, float *dist) {
+	float dist2  = LengthSq(p - state.x[0]);
+	uint nearest = 0;
+
+	for (uint i = 1; i < (uint)MAX_STATE; ++i) {
+		float next2 = LengthSq(p - state.x[i]);
+		if (next2 < dist2) {
+			dist2  = next2;
+			nearest = i;
+		}
+	}
+
+	*dist = SquareRoot(dist2);
+
+	return nearest;
 }
 
 int Main(int argc, char **argv) {
@@ -577,6 +667,8 @@ int Main(int argc, char **argv) {
 
 	float aspect_ratio  = width / height;
 
+	Dragging_Force_Generator dragging;
+
 	Vec2 cursor = Vec2(0);
 
 	uint64_t counter  = PL_GetPerformanceCounter();
@@ -587,12 +679,40 @@ int Main(int argc, char **argv) {
 	float t = 0.0f;
 
 	State state;
-	state.x[0] = Vec2(1, 0);
-	state.x[1] = Vec2(-1, 0);
-	state.v[0] = Vec2(0);
-	state.v[1] = Vec2(0);
+	memset(&state, 0, sizeof(state));
+	memset(bodies, 0, sizeof(bodies));
 
-	Mass_Spring mass_spring;
+	float x_pos = -2.0f;
+
+	for (int x = 0; x < 10; ++x) {
+		float y_pos = 4.0f;
+
+		uint i = x * 5;
+
+		state.x[i] = Vec2(x_pos, y_pos);
+		y_pos -= 0.25f;
+
+		i += 1;
+		for (int y = 1; y < 5; ++y, ++i) {
+			state.x[i] = Vec2(x_pos, y_pos);
+			bodies[i].imass = 1.0f / 0.1f;
+			bodies[i].acceleration = Vec2(0, -1);
+
+			y_pos -= 0.25f;
+
+			Append(&Forces, new Rope_Force_Generator(i - 1, i, 0.25f));
+
+			if (1) {
+				if (i + 5 < MAX_STATE)
+					Append(&Forces, new Rope_Force_Generator(i, i + 5, 0.5f));
+			}
+		}
+
+		x_pos += 0.5f;
+	}
+
+	Rigid_Body_System system;
+
 
 	float frame_time_ms = 0.0f;
 
@@ -614,14 +734,34 @@ int Main(int argc, char **argv) {
 				cursor = MapRange(Vec2(0), Vec2(width, height), -view_half_size, view_half_size, cursor);
 			}
 
+			if (e.kind == PL_EVENT_BUTTON_PRESSED) {
+				if (e.button.id == PL_BUTTON_LEFT) {
+					float dist;
+					uint i = FindNearestBody(state, cursor, &dist);
+					
+					if (dist < 2.0f) {
+						dragging.i  = i;
+						Dragging = &dragging;
+					}
+				}
+			}
+
+			if (e.kind == PL_EVENT_BUTTON_RELEASED) {
+				if (e.button.id == PL_BUTTON_LEFT) {
+					Dragging = nullptr;
+				}
+			}
+
 			if (e.kind == PL_EVENT_RESIZE) {
 				R_Flush(queue);
 				R_ResizeRenderTargets(device, swap_chain, e.resize.w, e.resize.h);
 			}
 		}
 
+		dragging.pos = cursor;
+
 		while (accumulator >= dt) {
-			state = IntegrateModifiedEuler(mass_spring, state, t, dt);
+			state = IntegrateModifiedEuler(system, state, t, dt);
 
 			t += dt;
 			accumulator -= dt;
@@ -640,11 +780,20 @@ int Main(int argc, char **argv) {
 
 		R_DrawCircle(renderer, cursor, 0.1f, Vec4(1));
 
-		//R_DrawRectCenteredOutline(renderer, state.x, Vec2(1), Vec4(1));
-		R_DrawCircle(renderer, state.x[0], 0.5f, Vec4(1));
-		R_DrawCircle(renderer, state.x[1], 0.5f, Vec4(1));
+		for (int i = 0; i < MAX_STATE; ++i)
+			R_DrawCircle(renderer, state.x[i], 0.1f, Vec4(1));
 
-		DrawSpring(renderer, state.x[0], state.x[1], mass_spring.length, 20);
+		for (auto force: Forces) {
+			Vec2 a = state.x[force->indices[0]];
+			Vec2 b = state.x[force->indices[1]];
+			R_DrawLine(renderer, a, b, Vec4(1));
+		}
+
+		if (Dragging) {
+			R_DrawLine(renderer, state.x[dragging.i], cursor, Vec4(1, 1, 0, 1));
+		}
+
+		//DrawSpring(renderer, state.x[0], state.x[1], rope.length, 20);
 		//DrawSpring(renderer, state.x[1], Vec2(0), mass_spring.length, 20);
 
 
