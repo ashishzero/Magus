@@ -84,8 +84,6 @@
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>
-    <ClCompile Include="Magus\KrCollision.cpp" />
-    <ClCompile Include="Magus\KrPhysics.cpp" />
     <ClCompile Include="Magus\Kr\KrFormat.cpp" />
     <ClCompile Include="Magus\Kr\KrIndex.cpp" />
     <ClCompile Include="Magus\Kr\KrLog.cpp" />
@@ -107,8 +105,6 @@
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="Magus\Hex.h" />
-    <ClInclude Include="Magus\KrCollision.h" />
-    <ClInclude Include="Magus\KrPhysics.h" />
     <ClInclude Include="Magus\Kr\KrMathType.h" />
     <ClInclude Include="Magus\Kr\KrRandom.h" />
     <ClInclude Include="Magus\Render2dBackend.h" />

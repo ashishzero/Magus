@@ -12,8 +12,8 @@
 #include "Render2dBackend.h"
 #include "ResourceLoaders/Loaders.h"
 
-#include "KrPhysics.h"
-#include "KrCollision.h"
+//#include "KrPhysics.h"
+//#include "KrCollision.h"
 
 enum Resource_Kind {
 	RESOURCE_FONT,
@@ -411,8 +411,234 @@ struct Controller {
 	Vec2 axis;
 };
 
+
+constexpr int MAX_RIGID_BODY = 1;
+
+// https://www.cs.cmu.edu/~baraff/pbm/rigid1.pdf
+
+struct Rigid_Body {
+	float inv_mass;
+	float inv_inertia;
+
+	Vec2  X;
+	Vec2  R;
+	Vec2  P;
+	float L;
+
+	Vec2  V;
+	float W;
+
+	Vec2  force;
+	float torque;
+};
+
+struct State {
+	float x[8];
+};
+
+static Rigid_Body bodies[MAX_RIGID_BODY];
+
+void SerializeRigidBody(Rigid_Body *body, State *state) {
+	state->x[0] = body->X.x;
+	state->x[1] = body->X.y;
+	state->x[2] = body->R.x;
+	state->x[3] = body->R.y;
+	state->x[4] = body->P.x;
+	state->x[5] = body->P.y;
+	state->x[6] = body->L;
+	state->x[7] = 0.0f;
+}
+
+void SerializeRigidBodies(Rigid_Body *bodies, State *states) {
+	for (int i = 0; i < MAX_RIGID_BODY; ++i) {
+		SerializeRigidBody(&bodies[i], &states[i]);
+	}
+}
+
+void DeserializeRigidBody(const State *state, Rigid_Body *body) {
+	body->X = Vec2(state->x[0], state->x[1]);
+	body->R = Vec2(state->x[2], state->x[3]);
+	body->P = Vec2(state->x[4], state->x[5]);
+	body->L = state->x[6];
+
+	body->V = body->P * body->inv_mass;
+	body->W = body->L * body->inv_inertia;
+}
+
+void DeserializeRigidBodies(State *states, Rigid_Body *bodies) {
+	for (int i = 0; i < MAX_RIGID_BODY; ++i) {
+		DeserializeRigidBody(&states[i], &bodies[i]);
+	}
+}
+
+const Vec2 Gravity = Vec2(0, 0);
+
+const Vec2 Anchors[] = { Vec2(0, 3) };
+const float RestLengths[] = { 1.0f };
+const float SprintConstant = 15.0f;
+
+void ComputeForces(float t, Rigid_Body *body) {
+	for (int i = 0; i < MAX_RIGID_BODY; ++i) {
+		body->force = Vec2(0);
+		body->torque = 0;
+	}
+
+	for (int i = 0; i < MAX_RIGID_BODY; ++i) {
+		body->force += Gravity / body->inv_mass;
+
+		Vec2 dir = body->X - Anchors[i];
+		float length = Length(dir);
+
+		float magnitude = Absolute(RestLengths[i] - length) * SprintConstant;
+		body->force -= magnitude * NormalizeZ(dir);
+	}
+}
+
+void DerivativeSerializeRigidBody(Rigid_Body *body, State *dst) {
+	Vec2 v = body->V;
+	dst->x[0] = v.x;
+	dst->x[1] = v.y;
+
+	Vec2 r = 0.5f * ComplexProduct(Arm(body->W), body->R);
+	dst->x[2] = r.x;
+	dst->x[3] = r.y;
+
+	Vec2 p = body->force;
+
+	dst->x[4] = p.x;
+	dst->x[5] = p.y;
+
+	dst->x[6] = body->torque;
+
+	dst->x[7] = 0.0f;
+}
+
+#if 0
+void Derivative(float t, State *y, State *ydot) {
+	DeserializeRigidBodies(y, bodies);
+
+	for (int i = 0; i < MAX_RIGID_BODY; ++i) {
+		ComputeForces(t, &bodies[i]);
+		DerivativeSerializeRigidBodies(&bodies[i], &ydot[i]);
+	}
+}
+#endif
+
+void Derivative(State *d, float t, const State &y, int i) {
+	DeserializeRigidBody(&y, &bodies[i]);
+	ComputeForces(t, &bodies[i]);
+	DerivativeSerializeRigidBody(&bodies[i], d);
+}
+
+typedef void(*Derivative_Proc)(State *d, float t, const State &y, int i);
+
+void AddScaled(State *yn, const State &y, float h, const State &d) {
+	for (int i = 0; i < ArrayCount(yn->x); ++i) {
+		yn->x[i] = y.x[i] + h * d.x[i];
+	}
+}
+
+void IntegrateEuler(State *yn, const State &y, float t, float h, Derivative_Proc f, int i) {
+	State d;
+	f(&d, t, y, i);
+	AddScaled(yn, y, h, d);
+}
+
+void IntegrateRK4(State *yn, const State &y, float t, float h, Derivative_Proc f, int i) {
+	State k1, k2, k3, k4;
+	State tmp;
+
+	f(&k1, t, y, i);
+
+	AddScaled(&tmp, y, h * 0.5f, k1);
+	f(&k2, t + 0.5f * h, tmp, i);
+
+	AddScaled(&tmp, y, h * 0.5f, k2);
+	f(&k3, t + 0.5f * h, tmp, i);
+
+	AddScaled(&tmp, y, h, k3);
+	f(&k4, t + h, tmp, i);
+
+	AddScaled(&tmp, k1, 2.0f, k2);
+	AddScaled(&tmp, tmp, 2.0f, k3);
+	AddScaled(&tmp, tmp, 1.0f, k4);
+	AddScaled(yn, y, h / 6.0f, tmp);
+}
+
+void Integrate(State *t1, const State *t0, float t, float dt) {
+	for (int i = 0; i < MAX_RIGID_BODY; ++i) {
+		IntegrateEuler(&t1[i], t0[i], t, dt, Derivative, i);
+		//IntegrateRK4(&t1[i], t0[i], t, dt, Derivative, i);
+	}
+}
+
+void Simulate(float t, float dt) {
+	State state_t0[MAX_RIGID_BODY];
+	State state_t1[MAX_RIGID_BODY];
+
+	SerializeRigidBodies(bodies, state_t0);
+	Integrate(state_t1, state_t0, t, dt);
+	DeserializeRigidBodies(state_t1, bodies);
+}
+
+//
+//
+//
+
+Vec2 LocalToWorld(const Rigid_Body *body, Vec2 P) {
+	Vec2 p = ComplexProduct(body->R, P);
+	p += body->P;
+	return p;
+}
+
+Vec2 WorldToLocal(const Rigid_Body *body, Vec2 P) {
+	P -= body->P;
+	Vec2 p = ComplexProduct(ComplexConjugate(body->R), P);
+	return p;
+}
+
+Vec2 LocalDirectionToWorld(const Rigid_Body *body, Vec2 N) {
+	Vec2 p = ComplexProduct(body->R, N);
+	return p;
+}
+
+Vec2 WorldDirectionToLocal(const Rigid_Body *body, Vec2 N) {
+	Vec2 p = ComplexProduct(ComplexConjugate(body->R), N);
+	return p;
+}
+
+Transform2d CalculateRigidBodyTransform(const Rigid_Body *body) {
+	float cosine = body->R.x;
+	float sine = body->R.y;
+
+	Transform2d transform;
+	transform.rot = Rotation2x2(body->W);
+	transform.pos = body->P;
+
+	return transform;
+}
+
+void ApplyForce(Rigid_Body *body, Vec2 F) {
+	body->force += F;
+}
+
+void ApplyForce(Rigid_Body *body, Vec2 F, Vec2 P) {
+	Vec2 rP = P - body->P;
+	body->force += F;
+	body->torque += CrossProduct(F, rP);
+}
+
+void ApplyForceAtBodyPoint(Rigid_Body *body, Vec2 force, Vec2 rP) {
+	Vec2 P = LocalToWorld(body, rP);
+	ApplyForce(body, force, P);
+}
+
+void ApplyTorque(Rigid_Body *body, float T) {
+	body->torque += T;
+}
+
 void ApplyDrag(Rigid_Body *body, float k1, float k2) {
-	Vec2 velocity = body->dP;
+	Vec2 velocity = body->V;
 	float speed   = Length(velocity);
 	float drag    = k1 * speed + k2 * speed * speed;
 
@@ -424,8 +650,8 @@ void ApplyDrag(Rigid_Body *body, float k1, float k2) {
 }
 
 void ApplyGravity(Rigid_Body *body, Vec2 g) {
-	if (body->invM == 0.0f) return;
-	Vec2 force = g / body->invM;
+	if (body->inv_mass == 0.0f) return;
+	Vec2 force = g / body->inv_mass;
 	ApplyForce(body, force);
 }
 
@@ -493,13 +719,13 @@ void ApplyBouyancy(Rigid_Body *body, Vec2 bouyancy_center, float submerged_volum
 }
 
 void PrepareForNextFrame(Rigid_Body *body) {
-	body->F = Vec2(0);
-	body->T = 0;
+	body->force = Vec2(0);
+	body->torque = 0;
 }
 
+#if 0
 void Integrate(Rigid_Body *body, float dt) {
-	uint skip = RIGID_BODY_IS_STATIC | ~RIGID_BODY_IS_AWAKE;
-	if (body->Flags & skip)
+	if (body->Kind == RIGID_BODY_STATIC || !IsAwake(body))
 		return;
 
 	Vec2 d2P = body->d2P;
@@ -516,6 +742,7 @@ void Integrate(Rigid_Body *body, float dt) {
 		body->W = NormalizeZ(body->W);
 	}
 }
+#endif
 
 #if 0
 
@@ -646,19 +873,18 @@ void ResolveVelocity(Contact_Manifold *manifold, float dt) {
 		impulse = -impulse;
 	}
 }
-#endif
 
 float CalcSeparatingVelocity(Contact_Manifold *manifold) {
-	Rigid_Body *a = manifold->bodies[0];
-	Rigid_Body *b = manifold->bodies[1];
-	Vec2 relative = a->dP - b->dP;
-	float separation = DotProduct(relative, manifold->normal);
+	Rigid_Body *a = manifold->Bodies[0];
+	Rigid_Body *b = manifold->Bodies[1];
+	Vec2 R = a->dP - b->dP;
+	float separation = DotProduct(R, manifold->N);
 	return separation;
 }
 
 void ResolveVelocity(Contact_Manifold *manifold, float dt) {
-	Rigid_Body *a = manifold->bodies[0];
-	Rigid_Body *b = manifold->bodies[1];
+	Rigid_Body *a = manifold->Bodies[0];
+	Rigid_Body *b = manifold->Bodies[1];
 
 	float inv_mass = a->invM + b->invM;
 	if (inv_mass <= 0) return;
@@ -666,21 +892,21 @@ void ResolveVelocity(Contact_Manifold *manifold, float dt) {
 	float separation = CalcSeparatingVelocity(manifold);
 
 	if (separation <= 0) {
-		float bounce = separation * manifold->restitution;
+		float bounce = separation * manifold->kRestitution;
 
 		Vec2 relative = (a->d2P - b->d2P) * dt;
-		float acc_separation = DotProduct(relative, manifold->normal);
+		float acc_separation = DotProduct(relative, manifold->N);
 
-		if (acc_separation < 0) {
-			bounce -= acc_separation * manifold->restitution;
+		if (acc_separation > 0) {
+			bounce -= acc_separation * manifold->kRestitution;
 			bounce = Max(0.0f, bounce);
 		}
 
-		float delta  = -(bounce + separation);
+		float delta = -separation - bounce * manifold->kRestitution;
 
 		float impulse = delta / inv_mass;
 
-		Vec2 impulse_per_inv_mass = impulse * manifold->normal;
+		Vec2 impulse_per_inv_mass = impulse * manifold->N;
 
 		a->dP += impulse_per_inv_mass * a->invM;
 		b->dP -= impulse_per_inv_mass * b->invM;
@@ -688,19 +914,33 @@ void ResolveVelocity(Contact_Manifold *manifold, float dt) {
 }
 
 void ResolvePosition(Contact_Manifold *manifold) {
-	Rigid_Body *a = manifold->bodies[0];
-	Rigid_Body *b = manifold->bodies[1];
+	Rigid_Body *a = manifold->Bodies[0];
+	Rigid_Body *b = manifold->Bodies[1];
 
-	if (manifold->penetration > 0) {
+	Assert(manifold->Penetration >= 0.0f);
+
+	if (manifold->Penetration > 0) {
 		float inv_mass = a->invM + b->invM;
 		if (inv_mass <= 0) return;
 
-		Vec2 move_per_inv_mass = manifold->penetration / inv_mass * manifold->normal;
+		Vec2 move_per_inv_mass = manifold->Penetration / inv_mass * manifold->N;
 
-		a->P += move_per_inv_mass * a->invM;
-		b->P -= move_per_inv_mass * b->invM;
+		float a_depth = manifold->Penetration * a->invM / inv_mass;
+		float b_depth = manifold->Penetration * b->invM / inv_mass;
 
-		manifold->penetration = 0; // TODO: Is this required?
+		if (a->depth < a_depth) {
+			a_depth = a_depth - a->depth;
+			a->P += manifold->N * a_depth;
+			a->depth += a_depth;
+		}
+
+		if (b->depth < b_depth) {
+			b_depth = b_depth - b->depth;
+			b->P -= manifold->N * b_depth;
+			b->depth += b_depth;
+		}
+
+		manifold->Penetration = 0; // TODO: Is this required?
 	}
 }
 
@@ -713,7 +953,7 @@ int ResolveCollisions(Array_View<Contact_Manifold> contacts, int max_iters, floa
 
 		for (int i = 0; i < (int)contacts.count; ++i) {
 			float sep = CalcSeparatingVelocity(&contacts[i]);
-			if (sep < max && (sep < 0 || contacts[i].penetration > 0)) {
+			if (sep < max && (sep < 0 || contacts[i].Penetration > 0)) {
 				max = sep;
 				max_i = i;
 			}
@@ -734,11 +974,11 @@ int ApplyCableConstraint(Rigid_Body *a, Rigid_Body *b, float max_length, float r
 	if (length < max_length)
 		return 0;
 
-	manifold->bodies[0]   = a;
-	manifold->bodies[1]   = b;
-	manifold->normal      = NormalizeZ(b->P - a->P);
-	manifold->penetration = length - max_length;
-	manifold->restitution = restitution;
+	manifold->Bodies[0]   = a;
+	manifold->Bodies[1]   = b;
+	manifold->N = NormalizeZ(b->P - a->P);
+	manifold->Penetration = length - max_length;
+	manifold->kRestitution = restitution;
 
 	return 1;
 }
@@ -749,11 +989,11 @@ int ApplyRodConstraint(Rigid_Body *a, Rigid_Body *b, float length, Contact_Manif
 	if (curr_length == length)
 		return 0;
 
-	manifold->bodies[0]   = a;
-	manifold->bodies[1]   = b;
-	manifold->normal      = NormalizeZ(b->P - a->P) * Sgn(curr_length - length);
-	manifold->penetration = Absolute(curr_length - length);
-	manifold->restitution = 0;
+	manifold->Bodies[0]   = a;
+	manifold->Bodies[1]   = b;
+	manifold->N = NormalizeZ(b->P - a->P) * Sgn(curr_length - length);
+	manifold->Penetration = Absolute(curr_length - length);
+	manifold->kRestitution = 0;
 
 	return 1;
 }
@@ -764,30 +1004,15 @@ int ApplyMagnetRepelConstraint(Rigid_Body *a, Rigid_Body *b, float max_length, f
 	if (length > max_length)
 		return 0;
 
-	manifold->bodies[0]   = a;
-	manifold->bodies[1]   = b;
-	manifold->normal      = NormalizeZ(a->P - b->P);
-	manifold->penetration = max_length - length;
-	manifold->restitution = restitution;
+	manifold->Bodies[0]   = a;
+	manifold->Bodies[1]   = b;
+	manifold->N      = NormalizeZ(a->P - b->P);
+	manifold->Penetration = max_length - length;
+	manifold->kRestitution = restitution;
 
 	return 1;
 }
-
-void RandomRigidBodies(Array_View<Rigid_Body> bodies) {
-	for (Rigid_Body &body : bodies) {
-		body.invM = 1.0f / RandomFloat(0.1f, 0.5f);
-		body.invI = 0.0f;
-		body.DF = 0.8f;
-		body.WDF = 0.8f;
-		body.P = RandomVec2(Vec2(-5, 3), Vec2(5, 4));
-		body.W = Vec2(1, 0);
-		body.dP = Vec2(0);
-		body.dW = 0;
-		body.F = Vec2(0);
-		body.d2P = Vec2(0, -10);
-		body.Flags = 0;
-	}
-}
+#endif
 
 // TODO: Continuous collision detection
 
@@ -862,8 +1087,92 @@ void DrawShape(R_Renderer2d *renderer, const Polygon &polygon, Vec4 color = Vec4
 	R_PopTransform(renderer);
 }
 
+#if 0
+void DrawRigidBodyShape(R_Renderer2d *renderer, Shape *shape, const Transform2d &transform, Vec4 color) {
+	if (shape->shape == SHAPE_KIND_CIRCLE)
+		DrawShape(renderer, GetShapeData<Circle>(shape), color, transform);
+	else if (shape->shape == SHAPE_KIND_CAPSULE)
+		DrawShape(renderer, GetShapeData<Capsule>(shape), color, transform);
+	else if (shape->shape == SHAPE_KIND_POLYGON)
+		DrawShape(renderer, GetShapeData<Polygon>(shape), color, transform);
+	else if (shape->shape == SHAPE_KIND_LINE)
+		DrawShape(renderer, GetShapeData<Line>(shape), color, transform);
+}
+
+
 static const Vec2 RectAxis[] = { Vec2(1, 0), Vec2(0, 1) };
 static const Vec2 RectVertexOffsets[] = { Vec2(-1, -1), Vec2(1, -1), Vec2(1, 1), Vec2(-1, 1) };
+
+struct World {
+	Array<Rigid_Body> bodies;
+};
+
+Rigid_Body *AddRigidBody(World *world, Vec2 P, float M, float I, uint count, Shape **shapes, Vec2 d2P = Vec2(0)) {
+	Rigid_Body *body = Append(&world->bodies);
+
+	body->P     = P;
+	body->W     = Vec2(1, 0);
+	body->dP    = Vec2(0);
+	body->dW    = 0;
+	body->DF    = 0.8f;
+	body->WDF   = 0.8f;
+	body->invM  = M ? 1.0f / M : 0.0f;
+	body->invI  = I ? 1.0f / I : 0.0f;
+	body->d2P   = d2P;
+	body->F     = Vec2(0);
+	body->T     = 0.0f;
+	body->Kind  = M ? RIGID_BODY_DYNAMIC : RIGID_BODY_STATIC;
+	body->Flags = 0;
+
+	body->depth = 0.0f;
+
+	body->Shapes.Count = count;
+	body->Shapes.Data  = shapes;
+
+	return body;
+}
+
+static int SelectedShape = 1;
+
+Rigid_Body *RandomRigidBody(World *world, Vec2 *pos = nullptr) {
+	Vec2  P  = pos ? *pos : RandomVec2(Vec2(-5, 3), Vec2(5, 4));
+	float M  = RandomFloat(0.1f, 0.5f);
+	float I  = 0.0f;
+	Vec2 d2P = Vec2(0, -10);
+
+	Shape **shape = new Shape *;
+
+	if (SelectedShape) {
+		TShape<Polygon> *rect = (TShape<Polygon> *)M_Alloc(sizeof(TShape<Polygon>) + sizeof(Vec2));
+		rect->shape = SHAPE_KIND_POLYGON;
+		rect->surface = 0;
+		rect->data.count = 4;
+		
+		float half_w = RandomFloat(0.1f, 0.5f);
+		float half_h = RandomFloat(0.1f, 0.5f);
+
+		for (int i = 0; i < 4; ++i) {
+			rect->data.vertices[i] = RectVertexOffsets[i] * Vec2(half_w, half_h);
+		}
+
+		shape[0] = rect;
+	} else {
+		TShape<Circle> *circle = new TShape<Circle>;
+		circle->shape = SHAPE_KIND_CIRCLE;
+		circle->surface = 0;
+		circle->data.center = Vec2(0);
+		circle->data.radius = M;
+
+		shape[0] = circle;
+	}
+
+	Rigid_Body *body = AddRigidBody(world, P, M, I, 1, shape, d2P);
+
+	Wake(body);
+
+	return body;
+}
+#endif
 
 int Main(int argc, char **argv) {
 	PL_ThreadCharacteristics(PL_THREAD_GAMES);
@@ -899,43 +1208,47 @@ int Main(int argc, char **argv) {
 	Animation dance = LoadDanceAnimation();
 	Animation run   = LoadRunAnimation();
 
-	Rigid_Body bodies[5] = {};
+#if 0
+	World world;
 
-	float boat_half_width_upper = 2.0f;
-	float boat_half_width_lower = 1.8f;
-	float boat_half_height      = 1.0f;
+	Vec2 wall_normals[] = { Vec2(0,1),Vec2(1,0),Vec2(-1,0) };
+	float wall_offsets[] = { -3.0f, -8.0f, -8.0f };
+	
+	for (int i = 0; i < 3; ++i) {
+		TShape<Line> *line = new TShape<Line>;
+		line->shape = SHAPE_KIND_LINE;
+		line->surface = 1;
+		line->data.offset = wall_offsets[i];
+		line->data.normal = wall_normals[i];
 
-	Vec2 boat_bouyancy_centers[] = {
-		Vec2(+0.0f, 0.0f),
-	};
+		Shape **ground = new Shape *;
+		ground[0] = line;
 
-	Rigid_Body boat = {};
-	boat.P        = Vec2(0);
-	boat.W     = Arm(0.0f);
-	boat.dP        = Vec2(0);
-	boat.dW        = 0.0f;
-	boat.DF         = 0.8f;
-	boat.WDF = 0.8f;
-	boat.invM        = 1.0f / 800.0f;
-	boat.invI     = 800.0f * (Square(boat_half_width_lower) + Square(boat_half_height)) / 12.0f;
-	boat.d2P    = Vec2(0, -10.0f);
-	boat.F           = Vec2(0);
-	boat.T          = 0.0f;
-	boat.Flags           = 0;
+		SetSurfaceData(0, 1, 0.8f, 0.1f);
+		SetSurfaceData(0, 0, 0.8f, 0.1f);
 
-	float ground_level = -2.0f;
+		AddRigidBody(&world, Vec2(0.0f, 0.0f), 0.0f, 0.0f, 1, ground);
+	}
 
-	Rigid_Body ground = {};
-	ground.P = Vec2(0, ground_level);
-	ground.dP = Vec2(0);
-	ground.F    = Vec2(0);
-	ground.DF  = 1;
-	ground.invM = 0;
+	for (int i = 0; i < 1; ++i) {
+		RandomRigidBody(&world);
+	}
 
-	RandomRigidBodies(bodies);
-
-	Array<Contact_Manifold> contacts;
+	Contact_Desc contacts;
 	int iterations = 0;
+#endif
+
+	bodies[0].inv_mass    = 1;
+	bodies[0].inv_inertia = 1;
+
+	bodies[0].X = Vec2(-3, 5);
+	bodies[0].R = Arm(0);
+	bodies[0].P = Vec2(0);
+	bodies[0].L = 0;
+	bodies[0].V = Vec2(0);
+	bodies[0].W = 0;
+	bodies[0].force = Vec2(0);
+	bodies[0].torque = 0;
 
 	Controller controller;
 	controller.axis = Vec2(0);
@@ -947,23 +1260,17 @@ int Main(int argc, char **argv) {
 	R_GetRenderTargetSize(swap_chain, &width, &height);
 
 	Vec2 cursor_pos = Vec2(0);
+	Vec2 cursor_cam_pos = Vec2(0);
 
 	uint64_t counter  = PL_GetPerformanceCounter();
 	float frequency   = (float)PL_GetPerformanceFrequency();
 
-	float angle = 0.0f;
-
 	const float dt    = 1.0f / 60.0f;
 	float accumulator = dt;
 
+	float t = 0.0f;
+
 	float frame_time_ms = 0.0f;
-
-	bool follow = false;
-
-	Vec2 cursor_cam_pos = Vec2(0);
-
-	float control = 0.0f;
-	Vec2 init_pos = Vec2(0);
 
 	bool running = true;
 
@@ -1009,33 +1316,37 @@ int Main(int argc, char **argv) {
 				}
 			}
 
-			if (e.kind == PL_EVENT_KEY_PRESSED && e.key.id == PL_KEY_SPACE) {
+			if (e.kind == PL_EVENT_CONTROLLER_THUMB_LEFT) {
+				if (e.window == window)
+					controller.axis = Vec2(e.controller.thumb.x, e.controller.thumb.y);
+			}
+
+#if 0
+			if (e.kind == PL_EVENT_KEY_PRESSED && e.key.id == PL_KEY_RETURN) {
 				if (!e.key.repeat) {
-					follow = !follow;
+					for (int i = 3; i < world.bodies.count; ++i) {
+						world.bodies[i].P = RandomVec2(Vec2(-5, 3), Vec2(5, 4));
+					}
 				}
 			}
 
 			if (e.kind == PL_EVENT_KEY_PRESSED && e.key.id == PL_KEY_R) {
-				angle += 0.5f;
-			}
-
-			if (e.kind == PL_EVENT_KEY_PRESSED && e.key.id == PL_KEY_RETURN) {
 				if (!e.key.repeat) {
-					RandomRigidBodies(bodies);
-					if (control == 0.0f) {
-						init_pos = Vec2(0.0f);
-						control = 1.0f;
-					} else {
-						init_pos  = cursor_cam_pos;
-						control = 0.0f;
-					}
-					angle = 0.0f;
+					SelectedShape = SelectedShape ? 0 : 1;
 				}
 			}
 
-			if (e.kind == PL_EVENT_CONTROLLER_THUMB_LEFT) {
-				if (e.window == window)
-					controller.axis = Vec2(e.controller.thumb.x, e.controller.thumb.y);
+#endif
+			if (e.kind == PL_EVENT_BUTTON_PRESSED && e.key.id == PL_BUTTON_LEFT) {
+				//RandomRigidBody(&world, &cursor_cam_pos);
+				bodies[0].X = cursor_cam_pos;
+				bodies[0].R = Arm(0);
+				bodies[0].P = Vec2(0);
+				bodies[0].L = 0;
+				bodies[0].V = Vec2(0);
+				bodies[0].W = 0;
+				bodies[0].force = Vec2(0);
+				bodies[0].torque = 0;
 			}
 
 			if (e.kind == PL_EVENT_CURSOR) {
@@ -1051,99 +1362,60 @@ int Main(int argc, char **argv) {
 
 		controller.axis = NormalizeZ(controller.axis);
 
-		Vec2 anchor = Vec2(0, 3.5f);
-
 		while (accumulator >= dt) {
-			for (Rigid_Body &body : bodies) {
-				PrepareForNextFrame(&body);
-			}
-			PrepareForNextFrame(&boat);
 
-			ApplyForce(&boat, Vec2(1000, 0) * controller.axis);
+			//Vec2 gravity = Vec2(0, -10);
 
-			//ApplyForce(&bodies[0], 10.0f * controller.axis);
-			ApplyBungee(&bodies[0], &bodies[1], Vec2(0), Vec2(0), 9.0f, 0.5f);
+			Simulate(t, dt);
 
-			float submerged_height = ground.P.y - (boat.P.y - boat_half_height);
-
-			float volume = 0.5f * 2.0f * (boat_half_width_lower + boat_half_width_upper) * 2.0f * boat_half_height;
-			float submerged_volume = 0.5f * 2.0f * (boat_half_width_lower + boat_half_width_upper) * 2.0f * submerged_height;
-
-			for (Vec2 b : boat_bouyancy_centers) {
-				ApplyBouyancy(&boat, b, submerged_volume, volume, 400, Vec2(0, -10));
-			}
-
-			//ApplyBungee(&bodies[1], bodies[0].position, 10, 1);
+			t += dt;
 
 #if 0
-			for (Rigid_Body &a : bodies) {
-				for (Rigid_Body &b : bodies) {
-					if (&a == &b) continue;
-
-					float min_dist = 0.5f;
-					float max_dist = 2.0f;
-					float distance = Distance(a.position, b.position);
-
-					if (distance < min_dist) {
-						ApplySpring(&a, &b, 2, min_dist);
-					} else if (distance > max_dist) {
-						ApplySpring(&a, &b, 2, max_dist);
-					}
-				}
+			for (Rigid_Body &body : world.bodies) {
+				PrepareForNextFrame(&body);
 			}
-#endif
 
-			for (Rigid_Body &body : bodies) {
-				//ApplyBouyancy(&body, 0.0f, 1.0f, water_level, 1.0f);
-				//ApplyBungee(&body, anchor, 2, 3);
+			for (Rigid_Body &body : world.bodies) {
 				Integrate(&body, dt);
 			}
 
-			Integrate(&boat, dt);
-
-			Reset(&contacts);
+			Reset(&contacts.manifolds);
 
 			Contact_Manifold manifold;
-			for (Rigid_Body &body : bodies) {
-				if (body.P.y <= ground.P.y) {
-					manifold.bodies[0]   = &body;
-					manifold.bodies[1]   = &ground;
-					manifold.normal      = Vec2(0, 1);
-					manifold.restitution = 0.5f;
-					manifold.penetration = ground.P.y - body.P.y;
+			for (ptrdiff_t i = 0; i < world.bodies.count; ++i) {
+				for (ptrdiff_t j = i + 1; j < world.bodies.count; ++j) {
+					Rigid_Body *first  = &world.bodies[i];
+					Rigid_Body *second = &world.bodies[j];
 
-					Append(&contacts, manifold);
+					if (first->Kind != RIGID_BODY_DYNAMIC && second->Kind != RIGID_BODY_DYNAMIC)
+						continue;
+
+					for (uint fi = 0; fi < first->Shapes.Count; ++fi) {
+						for (uint si = 0; si < second->Shapes.Count; ++si) {
+							Collide(first->Shapes.Data[fi], second->Shapes.Data[si], first, second, &contacts);
+						}
+					}
 				}
 			}
 
-#if 1
-			if (boat.P.y <= ground.P.y) {
-				manifold.bodies[0]   = &boat;
-				manifold.bodies[1]   = &ground;
-				manifold.normal      = Vec2(0, 1);
-				manifold.restitution = 0.5f;
-				manifold.penetration = ground.P.y - boat.P.y;
-
-				Append(&contacts, manifold);
-			}
+			iterations = ResolveCollisions(contacts.manifolds, 2 * (int)contacts.manifolds.count, dt);
 #endif
-
-			if (ApplyCableConstraint(&bodies[0], &bodies[1], 2, 0.0f, &manifold)) {
-				Append(&contacts, manifold);
-			}
-
-			iterations = ResolveCollisions(contacts, 2 * (int)contacts.count, dt);
-
-			if (follow) {
-				camera_pos = Lerp(camera_pos, boat.P, 0.5f);
-				camera_dist = Lerp(camera_dist, 0.8f, 0.1f);
-			} else {
-				camera_pos = Lerp(camera_pos, Vec2(0), 0.5f);
-				camera_dist = Lerp(camera_dist, 1.0f, 0.5f);
-			}
 
 			accumulator -= dt;
 		}
+
+		float KE = 0;
+
+		for (int i = 0; i < MAX_RIGID_BODY; ++i) {
+			KE += 0.5f * LengthSq(bodies[i].V);
+		}
+
+#if 0
+		for (Rigid_Body &body : world.bodies) {
+			if (body.Kind == RIGID_BODY_STATIC) continue;
+			KE += 0.5f * (1.0f / body.invM) * LengthSq(body.dP);
+		}
+#endif
 
 		StepAnimation(&dance);
 
@@ -1172,35 +1444,42 @@ int Main(int argc, char **argv) {
 		R_PushTransform(renderer, world_transform);
 		R_DrawCircle(renderer, cursor_cam_pos, 0.1f, Vec4(1));
 
-		R_DrawRectCentered(renderer, anchor, Vec2(0.1f), Vec4(1, 1, 0, 1));
-		for (const Rigid_Body &body : bodies) {
-			float radius = 1.0f / body.invM;
-			R_DrawCircleOutline(renderer, body.P, radius, Vec4(1));
-			R_DrawRectCentered(renderer, body.P, Vec2(0.1f), Vec4(1));
-			//R_DrawLine(renderer, body.position, anchor, Vec4(1, 1, 0, 1));
+		for (int i = 0; i < MAX_RIGID_BODY; ++i) {
+			Rigid_Body *body = &bodies[i];
+
+			R_DrawLine(renderer, body->X, Anchors[i], Vec4(1, 1, 0, 1));
+			R_DrawCircleOutline(renderer, body->X, 0.4f, Vec4(1));
+			R_DrawRectCentered(renderer, Anchors[i], Vec2(0.1f), Vec4(1, 1, 0, 1));
 		}
 
-		float radius = 1.0f / bodies[0].invM;
-		R_DrawCircleOutline(renderer, bodies[0].P, radius, Vec4(1, 0, 1, 1));
-		R_DrawRectCentered(renderer, bodies[0].P, Vec2(0.1f), Vec4(1));
+#if 0
+		for (const Rigid_Body &body : world.bodies) {
+			Transform2d transform = CalculateRigidBodyTransform(&body);
+			for (uint i = 0; i < body.Shapes.Count; ++i)
+				DrawRigidBodyShape(renderer, body.Shapes.Data[i], transform, Vec4(1));
+		}
 
-		R_DrawLine(renderer, Vec2(-10.0f, ground.P.y), Vec2(10.0f, ground.P.y), Vec4(0, 0, 1, 1));
-		R_DrawLine(renderer, bodies[0].P, bodies[1].P, Vec4(1, 0, 0, 1));
-
-		//Mat4 transform = Translation(Vec3(boat.position, 0.0f)) * RotationZ(Vec2Arg(boat.orientation)) * Translation(Vec3(-boat.position, 0.0f));
-
-		Mat4 transform = Translation(Vec3(boat.P, 0.0f)) * RotationZ(Vec2Arg(boat.W));
-
-		R_PushTransform(renderer, transform);
-
-		R_PathTo(renderer, Vec2(boat_half_width_upper, boat_half_height));
-		R_PathTo(renderer, Vec2(-boat_half_width_upper, boat_half_height));
-		R_PathTo(renderer, Vec2(-boat_half_width_lower, -boat_half_height));
-		R_PathTo(renderer, Vec2(boat_half_width_lower, -boat_half_height));
-
-		R_DrawPathStroked(renderer, Vec4(1), true);
+		for (auto manifold : contacts.manifolds) {
+			R_DrawCircle(renderer, manifold.P, 0.1f, Vec4(1, 1, 0, 1));
+			R_DrawLine(renderer, manifold.P, manifold.P - manifold.N * manifold.Penetration, Vec4(1, 1, 0, 1));
+		}
 
 		R_PopTransform(renderer);
+
+		const char *Shapes[] = { "Circle","Rect" };
+
+		DebugText("Shape: %\n", Shapes[SelectedShape]);
+		DebugText("Iterations: %\n", iterations);
+		DebugText("Contacts: %\n", contacts.manifolds.count);
+#endif
+
+		static float PrevKE = 0.0f;
+		static float KEdiff = 0.0f;
+
+		KEdiff = Lerp(KEdiff, KE - PrevKE, 0.7f);
+
+		DebugText("Energy: %\n", KEdiff);
+		//DebugText("Position: %\nVelocity: %\n", pendulum.position, pendulum.velocity);
 
 		/////////////////////////////////////////////////////////////////////////////
 

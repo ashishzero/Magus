@@ -1,11 +1,5 @@
 #include "KrCollision.h"
 
-template <typename T>
-static const T &GetShapeData(const Shape *_shape) {
-	const TShape<T> *shape = (const TShape<T> *)_shape;
-	return shape->data;
-}
-
 static void CollideCircleCircle(const Shape *shape_a, const Shape *shape_b, Rigid_Body *(&bodies)[2], Contact_Desc *contacts) {
 	const Circle &a = GetShapeData<Circle>(shape_a);
 	const Circle &b = GetShapeData<Circle>(shape_b);
@@ -13,7 +7,7 @@ static void CollideCircleCircle(const Shape *shape_a, const Shape *shape_b, Rigi
 	Vec2 a_pos = LocalToWorld(bodies[0], a.center);
 	Vec2 b_pos = LocalToWorld(bodies[1], b.center);
 
-	Vec2 midline   = b_pos - a_pos;
+	Vec2 midline   = a_pos - b_pos;
 	float length2  = LengthSq(midline);
 	float min_dist = a.radius + b.radius;
 
@@ -36,9 +30,9 @@ static void CollideCircleCircle(const Shape *shape_a, const Shape *shape_b, Rigi
 	float factor = a.radius / (a.radius + b.radius);
 
 	Contact_Manifold *manifold = AddContact(contacts, bodies, shape_a, shape_b);
-	manifold->point       = a_pos + factor * midline;
-	manifold->normal      = normal;
-	manifold->penetration = min_dist - length;
+	manifold->P           = a_pos + factor * midline;
+	manifold->N           = normal;
+	manifold->Penetration = min_dist - length;
 }
 
 static void CollideCircleCapsule(const Shape *shape_a, const Shape *shape_b, Rigid_Body *(&bodies)[2], Contact_Desc *contacts) {
@@ -81,9 +75,9 @@ static void CollideCircleCapsule(const Shape *shape_a, const Shape *shape_b, Rig
 	Vec2 contact_point = point + factor * midline;
 
 	Contact_Manifold *manifold = AddContact(contacts, bodies, shape_a, shape_b);
-	manifold->point       = LocalToWorld(bodies[1], contact_point);
-	manifold->normal      = LocalDirectionToWorld(bodies[1], normal);
-	manifold->penetration = radius - length;
+	manifold->P       = LocalToWorld(bodies[1], contact_point);
+	manifold->N      = LocalDirectionToWorld(bodies[1], normal);
+	manifold->Penetration = radius - length;
 }
 
 static void CollideCirclePolygon(const Shape *shape_a, const Shape *shape_b, Rigid_Body *(&bodies)[2], Contact_Desc *contacts) {
@@ -95,8 +89,8 @@ static void CollideCirclePolygon(const Shape *shape_a, const Shape *shape_b, Rig
 
 	Vec2 points[2];
 	if (GilbertJohnsonKeerthi(a.center, ta, b, tb, points)) {
-		Vec2 dir = points[1] - points[0];
-		float dist2 = LengthSq(points[0] - points[1]);
+		Vec2 dir    = points[0] - points[1];
+		float dist2 = LengthSq(dir);
 
 		if (dist2 > a.radius * a.radius)
 			return;
@@ -105,9 +99,9 @@ static void CollideCirclePolygon(const Shape *shape_a, const Shape *shape_b, Rig
 		Assert(dist != 0);
 
 		Contact_Manifold *manifold     = AddContact(contacts, bodies, shape_a, shape_b);
-		manifold->point       = points[1];
-		manifold->normal      = dir / dist;
-		manifold->penetration = a.radius - dist;
+		manifold->P       = points[1];
+		manifold->N      = dir / dist;
+		manifold->Penetration = a.radius - dist;
 
 		return;
 	}
@@ -140,14 +134,14 @@ static void CollideCirclePolygon(const Shape *shape_a, const Shape *shape_b, Rig
 	if (dist) {
 		normal = (center - point) / dist;
 	} else {
-		normal = PerpendicularVector(b.vertices[best_i], b.vertices[best_j]);
+		normal = PerpendicularVector(b.vertices[best_j], b.vertices[best_i]);
 		normal = NormalizeZ(normal);
 	}
 
 	Contact_Manifold *manifold = AddContact(contacts, bodies, shape_a, shape_b);
-	manifold->point       = TransformPoint(tb, point);
-	manifold->normal      = TransformDirection(tb, normal);
-	manifold->penetration = a.radius + dist;
+	manifold->P                = TransformPoint(tb, point);
+	manifold->N                = TransformDirection(tb, normal);
+	manifold->Penetration      = a.radius + dist;
 }
 
 static void CollideCircleLine(const Shape *shape_a, const Shape *shape_b, Rigid_Body *(&bodies)[2], Contact_Desc *contacts) {
@@ -166,9 +160,9 @@ static void CollideCircleLine(const Shape *shape_a, const Shape *shape_b, Rigid_
 	}
 
 	Contact_Manifold *manifold     = AddContact(contacts, bodies, shape_a, shape_b);
-	manifold->point       = a_pos - (dist + a.radius) * normal;
-	manifold->normal      = normal;
-	manifold->penetration = -dist;
+	manifold->P       = a_pos - (dist + a.radius) * normal;
+	manifold->N      = normal;
+	manifold->Penetration = -dist;
 }
 
 static void CollideCapsuleCapsule(const Shape *shape_a, const Shape *shape_b, Rigid_Body *(&bodies)[2], Contact_Desc *contacts) {
@@ -254,9 +248,9 @@ static void CollideCapsuleCapsule(const Shape *shape_a, const Shape *shape_b, Ri
 
 				for (int i = 0; i < 2; ++i) {
 					Contact_Manifold *manifold     = AddContact(contacts, bodies, shape_a, shape_b);
-					manifold->point       = points[i];
-					manifold->normal      = normal;
-					manifold->penetration = penetration;
+					manifold->P       = points[i];
+					manifold->N      = normal;
+					manifold->Penetration = penetration;
 				}
 
 				return;
@@ -276,9 +270,9 @@ static void CollideCapsuleCapsule(const Shape *shape_a, const Shape *shape_b, Ri
 	Vec2 contact_point = points.a + factor * midline;
 
 	Contact_Manifold *manifold     = AddContact(contacts, bodies, shape_a, shape_b);
-	manifold->point       = contact_point;
-	manifold->normal      = normal;
-	manifold->penetration = radius - dist;
+	manifold->P       = contact_point;
+	manifold->N      = normal;
+	manifold->Penetration = radius - dist;
 }
 
 static void CollideCapsulePolygon(const Shape *shape_a, const Shape *shape_b, Rigid_Body *(&bodies)[2], Contact_Desc *contacts) {
@@ -423,9 +417,9 @@ static void CollideCapsulePolygon(const Shape *shape_a, const Shape *shape_b, Ri
 
 				for (int i = 0; i < 2; ++i) {
 					Contact_Manifold *manifold     = AddContact(contacts, bodies, shape_a, shape_b);
-					manifold->point       = world_points[i];
-					manifold->normal      = world_normal;
-					manifold->penetration = penetration;
+					manifold->P       = world_points[i];
+					manifold->N      = world_normal;
+					manifold->Penetration = penetration;
 				}
 
 				return;
@@ -439,9 +433,9 @@ static void CollideCapsulePolygon(const Shape *shape_a, const Shape *shape_b, Ri
 	}
 
 	Contact_Manifold *manifold     = AddContact(contacts, bodies, shape_a, shape_b);
-	manifold->point       = world_points[1];
-	manifold->normal      = world_normal;
-	manifold->penetration = penetration;
+	manifold->P       = world_points[1];
+	manifold->N      = world_normal;
+	manifold->Penetration = penetration;
 }
 
 static void CollideCapsuleLine(const Shape *shape_a, const Shape *shape_b, Rigid_Body *(&bodies)[2], Contact_Desc *contacts) {
@@ -461,9 +455,9 @@ static void CollideCapsuleLine(const Shape *shape_a, const Shape *shape_b, Rigid
 
 		if (dist <= 0) {
 			Contact_Manifold *manifold     = AddContact(contacts, bodies, shape_a, shape_b);
-			manifold->point       = center - (dist + a.radius) * normal;
-			manifold->normal      = normal;
-			manifold->penetration = -dist;
+			manifold->P       = center - (dist + a.radius) * normal;
+			manifold->N      = normal;
+			manifold->Penetration = -dist;
 
 			contact_count += 1;
 		}
@@ -489,9 +483,9 @@ static void CollidePolygonLine(const Shape *shape_a, const Shape *shape_b, Rigid
 
 		if (dist <= 0.0f) {
 			Contact_Manifold *manifold     = AddContact(contacts, bodies, shape_b, shape_a);
-			manifold->point       = vertex - dist * world_normal;
-			manifold->normal      = world_normal;
-			manifold->penetration = -dist;
+			manifold->P       = vertex - dist * world_normal;
+			manifold->N      = world_normal;
+			manifold->Penetration = -dist;
 		}
 	}
 }
@@ -575,6 +569,7 @@ static bool PolygonPolygonOverlap(const Polygon &a, const Transform2d &ta, const
 	return false;
 }
 
+// todo: optimize: https://www.gdcvault.com/play/1017646/Physics-for-Game-Programmers-The
 static void CollidePolygonPolygon(const Shape *shape_a, const Shape *shape_b, Rigid_Body *(&bodies)[2], Contact_Desc *contacts) {
 	const Polygon &a = GetShapeData<Polygon>(shape_a);
 	const Polygon &b = GetShapeData<Polygon>(shape_b);
@@ -597,7 +592,7 @@ static void CollidePolygonPolygon(const Shape *shape_a, const Shape *shape_b, Ri
 
 	if (overlap < min_overlap) {
 		min_overlap = overlap;
-		best_normal = -normal;
+		best_normal = normal;
 	}
 
 	for (i = 0; i < a.count - 1; ++i) {
@@ -609,7 +604,7 @@ static void CollidePolygonPolygon(const Shape *shape_a, const Shape *shape_b, Ri
 
 		if (overlap < min_overlap) {
 			min_overlap = overlap;
-			best_normal = -normal;
+			best_normal = normal;
 		}
 	}
 
@@ -622,7 +617,7 @@ static void CollidePolygonPolygon(const Shape *shape_a, const Shape *shape_b, Ri
 
 	if (overlap < min_overlap) {
 		min_overlap = overlap;
-		best_normal = normal;
+		best_normal = -normal;
 	}
 
 	for (i = 0; i < b.count - 1; ++i) {
@@ -634,18 +629,18 @@ static void CollidePolygonPolygon(const Shape *shape_a, const Shape *shape_b, Ri
 
 		if (overlap < min_overlap) {
 			min_overlap = overlap;
-			best_normal = normal;
+			best_normal = -normal;
 		}
 	}
 
-	if (DotProduct(best_normal, tb.pos - ta.pos) < 0.0f)
+	if (DotProduct(best_normal, ta.pos - tb.pos) < 0.0f)
 		best_normal = -best_normal;
 
 	float penetration = overlap;
 	normal            = best_normal;
 
-	Farthest_Edge_Desc edge_a = FarthestEdgeDesc(a, ta, normal);
-	Farthest_Edge_Desc edge_b = FarthestEdgeDesc(b, tb, -normal);
+	Farthest_Edge_Desc edge_a = FarthestEdgeDesc(a, ta, -normal);
+	Farthest_Edge_Desc edge_b = FarthestEdgeDesc(b, tb, normal);
 
 	Farthest_Edge_Desc reference, incident;
 
@@ -695,9 +690,9 @@ static void CollidePolygonPolygon(const Shape *shape_a, const Shape *shape_b, Ri
 				Vec2 p = reference.vertices[1] - points[i];
 
 				Contact_Manifold *manifold     = AddContact(contacts, bodies, shape_a, shape_b);
-				manifold->normal      = normal;
-				manifold->point       = points[i];
-				manifold->penetration = DotProduct(reference_normal, reference.vertices[0] - points[i]);
+				manifold->N      = normal;
+				manifold->P       = points[i];
+				manifold->Penetration = DotProduct(reference_normal, reference.vertices[0] - points[i]);
 			}
 		}
 
@@ -706,9 +701,12 @@ static void CollidePolygonPolygon(const Shape *shape_a, const Shape *shape_b, Ri
 
 	// Only single vertex is in the reference edge
 	Contact_Manifold *manifold     = AddContact(contacts, bodies, shape_a, shape_b);
-	manifold->normal      = normal;
-	manifold->point       = incident.furthest_vertex;
-	manifold->penetration = penetration;
+	manifold->N      = normal;
+	manifold->P       = incident.furthest_vertex;
+	manifold->Penetration = penetration;
+}
+
+static void CollideLineLine(const Shape *shape_a, const Shape *shape_b, Rigid_Body *(&bodies)[2], Contact_Desc *contacts) {
 }
 
 //
@@ -721,7 +719,7 @@ static Collide_Proc Collides[SHAPE_KIND_COUNT][SHAPE_KIND_COUNT] = {
 	{ CollideCircleCircle, CollideCircleCapsule,  CollideCirclePolygon,  CollideCircleLine,  },
 	{ nullptr,             CollideCapsuleCapsule, CollideCapsulePolygon, CollideCapsuleLine, },
 	{ nullptr,             nullptr,               CollidePolygonPolygon, CollidePolygonLine, },
-	{ nullptr,             nullptr,               nullptr,               nullptr             },
+	{ nullptr,             nullptr,               nullptr,               CollideLineLine     },
 };
 
 void Collide(Shape *first, Shape *second, Rigid_Body *first_body, Rigid_Body *second_body, Contact_Desc *contacts) {

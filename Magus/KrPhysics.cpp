@@ -32,7 +32,7 @@ Vec2 WorldDirectionToLocal(const Rigid_Body *body, Vec2 N) {
 	return p;
 }
 
-Transform2d CalculateRigidBodyTransform(Rigid_Body *body) {
+Transform2d CalculateRigidBodyTransform(const Rigid_Body *body) {
 	float cosine = body->W.x;
 	float sine = body->W.y;
 
@@ -41,6 +41,10 @@ Transform2d CalculateRigidBodyTransform(Rigid_Body *body) {
 	transform.pos = body->P;
 
 	return transform;
+}
+
+bool IsAwake(Rigid_Body *body) {
+	return (body->Flags & RIGID_BODY_IS_AWAKE);
 }
 
 void Wake(Rigid_Body *body) {
@@ -123,13 +127,13 @@ float GetSurfaceRestitution(uint i, uint j) {
 	return RestitutionTable[i][j];
 }
 
-Contact_Manifold *AddContact(Contact_Desc *contacts, Rigid_Body *(&bodies)[2], float restitution, float friction) {
+Contact_Manifold *AddContact(Contact_Desc *contacts, Rigid_Body *(&bodies)[2], float kRestitution, float kFriction) {
 	Contact_Manifold *manifold = Append(&contacts->manifolds);
 	if (manifold) {
-		manifold->bodies[0]   = bodies[0];
-		manifold->bodies[1]   = bodies[1];
-		manifold->restitution = restitution;
-		manifold->friction    = friction;
+		manifold->Bodies[0]    = bodies[0];
+		manifold->Bodies[1]    = bodies[1];
+		manifold->kRestitution = kRestitution;
+		manifold->kFriction    = kFriction;
 		return manifold;
 	}
 
@@ -143,16 +147,16 @@ Contact_Manifold *AddContact(Contact_Desc *contacts, Rigid_Body *(&bodies)[2], c
 	return AddContact(contacts, bodies, restitution, friction);
 }
 
-void AddContact(Contact_Desc *contacts, Rigid_Body *(&bodies)[2], const Shape *a, const Shape *b, Vec2 normal, Vec2 point, float penetration) {
+void AddContact(Contact_Desc *contacts, Rigid_Body *(&bodies)[2], const Shape *a, const Shape *b, Vec2 N, Vec2 P, float penetration) {
 	Contact_Manifold *manifold = AddContact(contacts, bodies, a, b);
-	manifold->normal           = normal;
-	manifold->point            = point;
-	manifold->penetration      = penetration;
+	manifold->N           = N;
+	manifold->P           = P;
+	manifold->Penetration = penetration;
 }
 
-void AddContact(Contact_Desc *contacts, Rigid_Body *(&bodies)[2], float restitution, float friction, Vec2 normal, Vec2 point, float penetration) {
-	Contact_Manifold *manifold = AddContact(contacts, bodies, restitution, friction);
-	manifold->normal           = normal;
-	manifold->point            = point;
-	manifold->penetration      = penetration;
+void AddContact(Contact_Desc *contacts, Rigid_Body *(&bodies)[2], float kRestitution, float kFriction, Vec2 N, Vec2 P, float penetration) {
+	Contact_Manifold *manifold = AddContact(contacts, bodies, kRestitution, kFriction);
+	manifold->N           = N;
+	manifold->P           = P;
+	manifold->Penetration = penetration;
 }
