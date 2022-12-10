@@ -172,6 +172,7 @@ void R_SetTransform(R_Renderer2d *r2, const Mat4 &transform);
 void R_PushTransform(R_Renderer2d *r2, const Mat4 &transform);
 void R_PushTransform(R_Renderer2d *r2, const Mat3 &transform);
 void R_PushTransform(R_Renderer2d *r2, const Mat2 &transform);
+void R_PushTransform(R_Renderer2d *r2, const Transform2d &transform);
 void R_PopTransform(R_Renderer2d *r2);
 
 R_Texture *R_CurrentTexture(R_Renderer2d *r2);

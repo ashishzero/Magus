@@ -647,6 +647,15 @@ void R_PushTransform(R_Renderer2d *r2, const Mat2 &transform) {
 	R_PushTransform(r2, m4);
 }
 
+void R_PushTransform(R_Renderer2d *r2, const Transform2d &transform) {
+	Mat4 mat;
+	mat.rows[0] = Vec4(transform.rot.rows[0], 0.0f, transform.pos.x);
+	mat.rows[1] = Vec4(transform.rot.rows[1], 0.0f, transform.pos.y);
+	mat.rows[2] = Vec4(0.0f, 0.0f, 1.0f, 0.0f);
+	mat.rows[2] = Vec4(0.0f, 0.0f, 0.0f, 1.0f);
+	R_PushTransform(r2, mat);
+}
+
 void R_PopTransform(R_Renderer2d *r2) {
 	Assert(r2->transform.count > 1);
 	R_SetTransform(r2, r2->transform[r2->transform.count - 2]);
