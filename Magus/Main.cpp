@@ -639,6 +639,59 @@ uint FindNearestBody(const State &state, Vec2 p, float *dist) {
 	return nearest;
 }
 
+enum Collision {
+	COLLISION_CLEAR,
+	COLLISION_COLLIDING,
+	COLLISION_PENETRATING
+};
+
+Collision DetectCollisions() {
+	Collision result = COLLISION_CLEAR;
+	return result;
+}
+
+void ResolveCollisions() {
+}
+
+State Integrate(const System &f, const State &state, float t, float dt) {
+	return IntegrateModifiedEuler(f, state, t, dt);
+}
+
+State Step(const System &f, const State &state, float t, float dt) {
+	float current = 0.0f;
+	float target  = dt;
+
+	State initial = state;
+	State next;
+
+	while (current < dt) {
+		next = Integrate(f, initial, t + current, target - current);
+
+		Collision collision = DetectCollisions();
+
+		if (collision == COLLISION_PENETRATING) {
+			// Simulation gone too far, subdivide the step
+			target = (current + target) * 0.5f;
+
+			constexpr float STEP_EPSILON = 0.00001f;
+
+			// Ensure that we are moving forward
+			// Interpenetrations at the start of the frame may cause this
+			Assert(dt >= STEP_EPSILON);
+		} else {
+			if (collision == COLLISION_COLLIDING)
+				ResolveCollisions();
+
+			current = target;
+			target  = dt;
+
+			initial = next;
+		}
+	}
+
+	return next;
+}
+
 int Main(int argc, char **argv) {
 	PL_ThreadCharacteristics(PL_THREAD_GAMES);
 
@@ -692,6 +745,9 @@ int Main(int argc, char **argv) {
 		state.x[i] = Vec2(x_pos, y_pos);
 		y_pos -= 0.25f;
 
+		if (i + 5 < MAX_STATE)
+			Append(&Forces, new Rope_Force_Generator(i, i + 5, 0.5f));
+
 		i += 1;
 		for (int y = 1; y < 5; ++y, ++i) {
 			state.x[i] = Vec2(x_pos, y_pos);
@@ -702,10 +758,8 @@ int Main(int argc, char **argv) {
 
 			Append(&Forces, new Rope_Force_Generator(i - 1, i, 0.25f));
 
-			if (1) {
-				if (i + 5 < MAX_STATE)
-					Append(&Forces, new Rope_Force_Generator(i, i + 5, 0.5f));
-			}
+			if (i + 5 < MAX_STATE)
+				Append(&Forces, new Rope_Force_Generator(i, i + 5, 0.5f));
 		}
 
 		x_pos += 0.5f;
@@ -761,8 +815,7 @@ int Main(int argc, char **argv) {
 		dragging.pos = cursor;
 
 		while (accumulator >= dt) {
-			state = IntegrateModifiedEuler(system, state, t, dt);
-
+			state = Step(system, state, t, dt);
 			t += dt;
 			accumulator -= dt;
 		}
