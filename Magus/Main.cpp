@@ -639,18 +639,113 @@ uint FindNearestBody(const State &state, Vec2 p, float *dist) {
 	return nearest;
 }
 
-enum Collision {
+enum Collision_Kind {
 	COLLISION_CLEAR,
 	COLLISION_COLLIDING,
 	COLLISION_PENETRATING
 };
 
-Collision DetectCollisions() {
-	Collision result = COLLISION_CLEAR;
+struct Constraint {
+	float distance;
+	uint i, j;
+};
+
+Array<Constraint> Constraints;
+
+struct Contact {
+	//Vec2 point; // TODO: support for contact points
+	float restitution;
+	float penetration;
+	Vec2 normal;
+	uint i, j;
+};
+
+struct Collision {
+	Collision_Kind kind;
+
+	//float t;
+
+	Array_View<Contact> contacts;
+};
+
+Collision DetectCollisions(const State &state, float epsilon) {
+	Collision result = { COLLISION_CLEAR };
+
+	// TODO: Collision detection
+
+	Array<Contact> contacts;
+	contacts.allocator = M_GetArenaAllocator(ThreadScratchpad());
+
+	for (const auto &constraint : Constraints) {
+		Vec2 a = state.x[constraint.i];
+		Vec2 b = state.x[constraint.j];
+
+		float dist2 = LengthSq(b - a);
+		float max2  = constraint.distance * constraint.distance;
+
+		if (dist2 <= max2) continue;
+
+		float dist = SquareRoot(dist2);
+		float penetration = dist - constraint.distance;
+
+		if (penetration > epsilon) {
+			//result.t = constraint.distance / dist;
+
+			// TODO: Find time of collision
+			result.kind = COLLISION_PENETRATING;
+		}
+
+		Vec2 normal   = NormalizeZ(b - a);
+		Vec2 velocity = state.v[constraint.j] - state.v[constraint.i];
+
+		if (DotProduct(normal, velocity) > 0.0f) {
+			if (result.kind != COLLISION_PENETRATING)
+				result.kind = COLLISION_COLLIDING;
+			Append(&contacts, Contact{ 0.1f, penetration, normal, constraint.i, constraint.j });
+		}
+	}
+
+	result.contacts = contacts;
+
 	return result;
 }
 
-void ResolveCollisions() {
+void ResolveCollisions(State *state, const Collision &collision, float dt) {
+	//Assert(collision.kind != COLLISION_PENETRATING);
+
+	if (collision.kind == COLLISION_CLEAR)
+		return;
+
+	// TODO: Solve all contacts at once
+
+	for (const Contact &contact : collision.contacts) {
+		Vec2 rvel = state->v[contact.j] - state->v[contact.i];
+		float separation = DotProduct(rvel, contact.normal);
+
+		float impulse_denominator = bodies[contact.i].imass + bodies[contact.j].imass;
+		if (impulse_denominator == 0.0f) continue;
+
+		float bounce = separation;
+
+		Vec2 relative = (bodies[contact.j].acceleration - bodies[contact.i].acceleration) * dt;
+		float acc_separation = DotProduct(relative, contact.normal);
+
+		if (acc_separation > 0) {
+			bounce -= acc_separation;
+			bounce = Max(0.0f, bounce);
+		}
+
+		float impulse_numerator = -separation - bounce * contact.restitution;
+
+		float impulse = impulse_numerator / impulse_denominator;
+
+		state->v[contact.i] -= impulse * bodies[contact.i].imass * contact.normal;
+		state->v[contact.j] += impulse * bodies[contact.j].imass * contact.normal;
+
+		float penetration = contact.penetration / impulse_denominator;
+		state->x[contact.i] += penetration * bodies[contact.i].imass * contact.normal;
+		state->x[contact.j] -= penetration * bodies[contact.j].imass * contact.normal;
+	}
 }
 
 State Integrate(const System &f, const State &state, float t, float dt) {
@@ -664,23 +759,34 @@ State Step(const System &f, const State &state, float t, float dt) {
 	State initial = state;
 	State next;
 
-	while (current < dt) {
+	for (; current < dt;) {
 		next = Integrate(f, initial, t + current, target - current);
 
-		Collision collision = DetectCollisions();
+		constexpr float STEP_EPSILON = 0.00001f;
+		constexpr float EPSILON = 0.5f; // todo: this should depend on the size/scale
 
-		if (collision == COLLISION_PENETRATING) {
+		Collision collision = DetectCollisions(next, EPSILON);
+
+		if (collision.kind == COLLISION_PENETRATING) {
+			LogWarning("Penetrating");
+
 			// Simulation gone too far, subdivide the step
-			target = (current + target) * 0.5f;
+			target = (current + target) * 0.5f; // TODO: Get target value from "DetectCollisions" function when possible
+			//target = Lerp(current, target, collision.t);
 
-			constexpr float STEP_EPSILON = 0.00001f;
 
 			// Ensure that we are moving forward
 			// Interpenetrations at the start of the frame may cause this
-			Assert(dt >= STEP_EPSILON);
+			if ((target - current) >= STEP_EPSILON) {
+				ResolveCollisions(&next, collision, target - current);
+
+				current = target;
+				target = dt;
+
+				initial = next;
+			}
 		} else {
-			if (collision == COLLISION_COLLIDING)
-				ResolveCollisions();
+			ResolveCollisions(&next, collision, target - current);
 
 			current = target;
 			target  = dt;
@@ -735,18 +841,25 @@ int Main(int argc, char **argv) {
 	memset(&state, 0, sizeof(state));
 	memset(bodies, 0, sizeof(bodies));
 
-	float x_pos = -2.0f;
+	const float x_start_pos = -2.0f;
+	const float y_start_pos = 4.0f;
+
+#if 0
+	const float x_sep_dist = 0.5f;
+	const float y_sep_dist = 0.25f;
+
+	float x_pos = x_start_pos;
 
 	for (int x = 0; x < 10; ++x) {
-		float y_pos = 4.0f;
+		float y_pos = y_start_pos;
 
 		uint i = x * 5;
 
 		state.x[i] = Vec2(x_pos, y_pos);
-		y_pos -= 0.25f;
+		y_pos -= y_sep_dist;
 
 		if (i + 5 < MAX_STATE)
-			Append(&Forces, new Rope_Force_Generator(i, i + 5, 0.5f));
+			Append(&Forces, new Rope_Force_Generator(i, i + 5, x_sep_dist));
 
 		i += 1;
 		for (int y = 1; y < 5; ++y, ++i) {
@@ -754,16 +867,75 @@ int Main(int argc, char **argv) {
 			bodies[i].imass = 1.0f / 0.1f;
 			bodies[i].acceleration = Vec2(0, -1);
 
-			y_pos -= 0.25f;
+			y_pos -= y_sep_dist;
 
-			Append(&Forces, new Rope_Force_Generator(i - 1, i, 0.25f));
+			Append(&Forces, new Rope_Force_Generator(i - 1, i, y_sep_dist));
 
 			if (i + 5 < MAX_STATE)
-				Append(&Forces, new Rope_Force_Generator(i, i + 5, 0.5f));
+				Append(&Forces, new Rope_Force_Generator(i, i + 5, x_sep_dist));
 		}
 
-		x_pos += 0.5f;
+		x_pos += x_sep_dist;
 	}
+#elif 1
+	const float x_sep_dist = 0.5f;
+	const float y_sep_dist = 1.f;
+
+	float x_pos = x_start_pos;
+
+	for (int x = 0; x < 10; ++x) {
+		float y_pos = y_start_pos;
+
+		uint i = x * 5;
+
+		state.x[i] = Vec2(x_pos, y_pos);
+		y_pos -= y_sep_dist;
+
+		if (i + 5 < MAX_STATE) {
+			Append(&Constraints, Constraint{ x_sep_dist, i, i + 5 });
+		}
+
+		i += 1;
+		for (int y = 1; y < 5; ++y, ++i) {
+			state.x[i] = Vec2(x_pos, y_pos);
+			bodies[i].imass = 1.0f / 0.1f;
+			bodies[i].acceleration = Vec2(0, -1);
+
+			y_pos -= y_sep_dist;
+
+			Append(&Constraints, Constraint{ y_sep_dist, i - 1, i });
+
+			if (i + 5 < MAX_STATE)
+				Append(&Constraints, Constraint{ x_sep_dist, i, i + 5 });
+		}
+
+		x_pos += x_sep_dist;
+	}
+#else
+	float x_pos = x_start_pos;
+
+	for (int x = 0; x < 10; ++x) {
+		float y_pos = y_start_pos;
+
+		uint i = x * 5;
+
+		state.x[i] = Vec2(x_pos, y_pos);
+		y_pos -= y_sep_dist;
+
+		i += 1;
+		for (int y = 1; y < 5; ++y, ++i) {
+			state.x[i] = Vec2(x_pos, y_pos);
+			bodies[i].imass = 1.0f / 0.1f;
+			bodies[i].acceleration = Vec2(0, -1);
+
+			y_pos -= y_sep_dist;
+		}
+
+		x_pos += x_sep_dist;
+	}
+
+	Append(&Constraints, Constraint{ 2.0f, 0, 1 });
+#endif
 
 	Rigid_Body_System system;
 
@@ -836,9 +1008,15 @@ int Main(int argc, char **argv) {
 		for (int i = 0; i < MAX_STATE; ++i)
 			R_DrawCircle(renderer, state.x[i], 0.1f, Vec4(1));
 
-		for (auto force: Forces) {
+		for (const auto &force: Forces) {
 			Vec2 a = state.x[force->indices[0]];
 			Vec2 b = state.x[force->indices[1]];
+			R_DrawLine(renderer, a, b, Vec4(1));
+		}
+
+		for (const auto &constraint : Constraints) {
+			Vec2 a = state.x[constraint.i];
+			Vec2 b = state.x[constraint.j];
 			R_DrawLine(renderer, a, b, Vec4(1));
 		}
 
@@ -859,6 +1037,8 @@ int Main(int argc, char **argv) {
 		String text = TmpFormat("%ms % FPS", frame_time_ms, (int)(1000.0f / frame_time_ms));
 
 		R_DrawText(renderer, Vec2(0.0f, height - 25.0f), Vec4(1, 1, 0, 1), text);
+		R_DrawText(renderer, Vec2(0.0f, height - 50.0f), Vec4(1), TmpFormat("%", state.x[0]));
+		//R_DrawText(renderer, Vec2(0.0f, height - 75.0f), Vec4(1), TmpFormat("P: %, V: %", state.x[1], state.v[1]));
 
 		R_Viewport viewport;
 
